@@ -41,7 +41,7 @@ export class DeltaNeutraMM {
             NETWORK: process.env.NETWORK,
         })
         this.account = store.getAccount();
-        this.telegramNotif = new TelegramNotif(process.env.TG_TOKEN, true);
+        this.telegramNotif = new TelegramNotif(process.env.TG_TOKEN, false);
         this.init();
     }
 
