@@ -19,6 +19,13 @@ export class DeltaNeutraMM {
         targetHfBasisPoints: BigInt(0),
         mainToken: 'USDC',
         secondaryToken: 'ETH',
+    }, {
+        name: 'DeltaNeutralLoopingSTRKETH',
+        address: '0x20d5fc4c9df4f943ebb36078e703369c04176ed00accf290e8295b659d2cea6',
+        minHfBasisPoints: BigInt(0),
+        targetHfBasisPoints: BigInt(0),
+        mainToken: 'STRK',
+        secondaryToken: 'ETH',
     }];
 
     readonly contracts: {[key: string]: Contract} = {}
@@ -66,19 +73,26 @@ export class DeltaNeutraMM {
     }
 
     async start() {
-        const calls = await this.shouldRebalance();
-        if (calls.length > 0) {
-            console.log(`Submitting batch of ${calls.length} calls`);
-            // execute calls
-            const tx = await this.account.execute(calls);
-            logger.info(`Transaction submitted: ${tx.transaction_hash}`);
-            await this.config.provider.waitForTransaction(tx.transaction_hash);
-            logger.info(`Transaction confirmed: ${tx.transaction_hash}`);
+        try {
+            const calls = await this.shouldRebalance();
+            if (calls.length > 0) {
+                console.log(`Submitting batch of ${calls.length} calls`);
+                this.telegramNotif.sendMessage(`Submitting batch of ${calls.length} calls ♻️`);
+                // execute calls
+                const tx = await this.account.execute(calls);
+                logger.info(`Transaction submitted: ${tx.transaction_hash}`);
+                await this.config.provider.waitForTransaction(tx.transaction_hash);
+                logger.info(`Transaction confirmed: ${tx.transaction_hash}`);
+                this.telegramNotif.sendMessage(`DNMM:: Completed ${calls.length} rebalances ✅`);
+            }
+        } catch(err) {
+            console.error(`DNMM Risk error`, err);
+            this.telegramNotif.sendMessage(`DNMM Risk error ⚠️☠️🚨⚠️☠️🚨`)
         }
 
         setInterval(async () => {
             this.start();
-        }, 60 * 1000); // 5 minutes
+        }, 120 * 1000); // 2 minutes
     }
 
     async shouldRebalance() {
@@ -91,7 +105,7 @@ export class DeltaNeutraMM {
             const hf2 = result[1];
             const now = new Date();
             if (now.getHours() % 3 == 0 && now.getMinutes() <= 5 || this.isFirstRun) {
-                this.telegramNotif.sendMessage(`DNMM:: Current health factors: ${hf1}, ${hf2}`);
+                this.telegramNotif.sendMessage(`${this.contractsInfo[i].name}:: Current health factors: ${hf1}, ${hf2}`);
             }
 
             console.log(this.contractsInfo[i], hf1, hf2);
@@ -103,7 +117,7 @@ export class DeltaNeutraMM {
             }
         }
 
-        console.log(`Rebalancing calls: ${calls.length}`)
+        console.log(`Rebalancing calls: ${calls.length}`);
         this.isFirstRun = false;
         return calls;
     }
