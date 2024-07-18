@@ -92,7 +92,7 @@ export class DeltaNeutraMM {
             this.telegramNotif.sendMessage(`DNMM Risk error ⚠️☠️🚨⚠️☠️🚨`)
         }
 
-        setInterval(async () => {
+        setTimeout(async () => {
             this.start();
         }, 120 * 1000); // 2 minutes
     }
