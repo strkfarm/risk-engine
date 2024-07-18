@@ -1,3 +1,4 @@
+import { pollHeartbeat } from "@/utils";
 import { Account, Call, Contract, uint256 } from "starknet";
 import { ContractAddr, Global, IConfig, ILendingPosition, logger, Pricer, Store, TelegramNotif, ZkLend } from "strkfarm-sdk";
 
@@ -74,6 +75,7 @@ export class DeltaNeutraMM {
 
     async start() {
         try {
+            pollHeartbeat();
             const calls = await this.shouldRebalance();
             if (calls.length > 0) {
                 console.log(`Submitting batch of ${calls.length} calls`);
