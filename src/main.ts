@@ -12,14 +12,14 @@ import { DeltaNeutraMM } from "./monitors/delta_neutral_mm";
 // bootstrap();
 
 async function main() {
-const config = getMainnetConfig();
-// const loanGuard = new LoanGuardService(config);
-// await loanGuard.waitForInitilisation();
-// await loanGuard.start();
+  const config = getMainnetConfig();
+  // const loanGuard = new LoanGuardService(config);
+  // await loanGuard.waitForInitilisation();
+  // await loanGuard.start();
 
-const dnmm = new DeltaNeutraMM(config);
-await dnmm.waitForInitialisation();
-dnmm.start();
+  const dnmm = new DeltaNeutraMM(config);
+  await dnmm.waitForInitialisation();
+  dnmm.start();
 }
 
 main();

@@ -1,6 +1,12 @@
 import { pollHeartbeat } from "@/utils";
+import assert from "assert";
 import { Account, Call, Contract, uint256 } from "starknet";
-import { ContractAddr, Global, IConfig, ILendingPosition, logger, Pricer, Store, TelegramNotif, ZkLend } from "strkfarm-sdk";
+import { FatalError } from "strkfarm-sdk";
+import { PricerRedis } from "strkfarm-sdk";
+import { getDefaultStoreConfig } from "strkfarm-sdk";
+import { Network } from "strkfarm-sdk";
+import { ContractAddr, Global, IConfig, ILendingPosition, 
+    logger, Pricer, Store, TelegramNotif, ZkLend, Pragma } from "strkfarm-sdk";
 
 export interface ContractInfo {
     address: string,
@@ -30,6 +36,7 @@ export class DeltaNeutraMM {
     }];
 
     readonly contracts: {[key: string]: Contract} = {}
+    readonly pragma: Pragma;
     zkLend: ZkLend;
     private initialised = false;
     readonly account: any;
@@ -37,12 +44,16 @@ export class DeltaNeutraMM {
     private isFirstRun = true;
     constructor(config: IConfig) {
         this.config = config;
-        const store = new Store(this.config, {
-            SECRET_FILE_FOLDER: process.env.SECRET_FILE_FOLDER,
-            NETWORK: process.env.NETWORK,
-        })
-        this.account = store.getAccount();
+        const defaultStoreConfig = getDefaultStoreConfig(<Network>process.env.NETWOR);
+        defaultStoreConfig.PASSWORD = process.env.ACCOUNT_SECURE_PASSWORD;
+        const store = new Store(this.config, defaultStoreConfig);
+        
+        if (!process.env.ACCOUNT_NAME) {
+            throw new Error('ACCOUNT_NAME not set');
+        }
+        this.account = store.getAccount(process.env.ACCOUNT_NAME);
         this.telegramNotif = new TelegramNotif(process.env.TG_TOKEN, false);
+        this.pragma = new Pragma(this.config.provider);
         this.init();
     }
 
@@ -55,8 +66,11 @@ export class DeltaNeutraMM {
         await this.loadSettings();
 
         const tokens = await Global.getTokens();
-        const pricer = new Pricer(this.config, tokens);
-        await pricer.waitTillReady();
+        const pricer = new PricerRedis(this.config, tokens);
+        if (!process.env.REDIS_URL) {
+          throw new FatalError('REDIS_URL not set');
+        }
+        await pricer.initRedis(process.env.REDIS_URL);
         this.zkLend = new ZkLend(this.config, pricer);
         await this.zkLend.waitForInitilisation();
         this.initialised = true;
@@ -78,6 +92,7 @@ export class DeltaNeutraMM {
             pollHeartbeat();
             const calls = await this.shouldRebalance();
             if (calls.length > 0) {
+                this.isFirstRun = true;
                 console.log(`Submitting batch of ${calls.length} calls`);
                 this.telegramNotif.sendMessage(`Submitting batch of ${calls.length} calls ♻️`);
                 // execute calls
@@ -129,7 +144,7 @@ export class DeltaNeutraMM {
         const minHf: BigInt = contractInfo.minHfBasisPoints;
         if (currentHf1 < minHf) {
             // e.g. zkLend is unhealth. repay some debt in zklend by withdrawing from nostra
-            const debtToRepay = await this.requiredDebtToRepay(Number(contractInfo.targetHfBasisPoints), zkLendPositions);
+            const debtToRepay = await this.requiredDebtToRepay(contractInfo, Number(contractInfo.targetHfBasisPoints), zkLendPositions);
             logger.verbose(`generateRebalanceCall:: debtToRepay: ${debtToRepay}`);
             return contract.populate('rebalance', {
                 amount: uint256.bnToUint256(debtToRepay.toString()),
@@ -137,7 +152,7 @@ export class DeltaNeutraMM {
             });
         } else if (currentHf2 < contractInfo.minHfBasisPoints) {
             // e.g. nostra is unhealth. add collateral in nostra by borrowing from zkLend
-            const debtToBorrow = await this.requiredDebtToRepay(Number(contractInfo.targetHfBasisPoints), zkLendPositions);
+            const debtToBorrow = await this.requiredDebtToRepay(contractInfo, Number(contractInfo.targetHfBasisPoints), zkLendPositions);
             logger.verbose(`generateRebalanceCall:: debtToBorrow: ${debtToBorrow}`);
             return contract.populate('rebalance', {
                 amount: uint256.bnToUint256(debtToBorrow.toString()),
@@ -159,32 +174,44 @@ export class DeltaNeutraMM {
         return (collateralAmount * collateralFactor * collateralPrice * borrowFactor) / (borrowAmount * borrowPrice);
     }
 
-    async requiredDebtToRepay(requiredHf: number, positions: ILendingPosition[]) {
-        const collateralUsd = positions.find(p => p.tokenSymbol === 'USDC')?.supplyUSD;
-        if (!collateralUsd) {
-            throw new Error('Collateral amount not found');
+    async requiredDebtToRepay(contractInfo: ContractInfo, requiredHf: number, positions: ILendingPosition[]) {
+        const mainToken = contractInfo.mainToken;
+        const secondaryToken = contractInfo.secondaryToken;
+        const collateralAmount = positions.find(p => p.tokenSymbol === mainToken)?.supplyAmount;
+        const mainTokenInfo = this.zkLend.tokens.find(t => t.symbol === mainToken);
+        if (!mainTokenInfo) {
+            throw new FatalError('Main token info not found');
         }
-        const collateralFactor = this.zkLend.tokens.find(t => t.symbol === 'USDC')?.collareralFactor;
+        const colPrice = await this.pragma.getPrice(mainTokenInfo.address);
+        const collateralUsd = collateralAmount.multipliedBy(colPrice);
+        if (!collateralUsd) {
+            throw new FatalError('Collateral amount not found');
+        }
+        const collateralFactor = mainTokenInfo?.collareralFactor;
         if (!collateralFactor) {
-            throw new Error('Collateral factor not found');
+            throw new FatalError('Collateral factor not found');
         }
         logger.info(`requiredDebtToRepay:: collateralAmount: ${collateralUsd}, collateralFactor: ${collateralFactor}`);
 
-        const borrowAmount = positions.find(p => p.tokenSymbol === 'ETH')?.debtAmount;
+        const borrowAmount = positions.find(p => p.tokenSymbol === secondaryToken)?.debtAmount;
         if (!borrowAmount) {
-            throw new Error('Borrow amount not found');
+            throw new FatalError('Borrow amount not found');
         }
-        const borrowPriceInfo = this.zkLend.pricer.getPrice('ETH');
-        const borrowFactor = this.zkLend.tokens.find(t => t.symbol === 'ETH')?.borrowFactor;
+        const secondaryTokenInfo = this.zkLend.tokens.find(t => t.symbol === secondaryToken);
+        if(!secondaryTokenInfo) {
+            throw new FatalError('Secondary token info not found');
+        }
+        const borrowPrice = await this.pragma.getPrice(secondaryTokenInfo?.address || '');
+        const borrowFactor = secondaryTokenInfo?.borrowFactor;
         if (!borrowFactor) {
-            throw new Error('Borrow factor not found');
+            throw new FatalError('Borrow factor not found');
         }
         logger.info(`requiredDebtToRepay:: borrowFactor: ${borrowFactor}`);
 
         const requiredDebt = collateralUsd
             .multipliedBy(collateralFactor.toFixed(6))
             .dividedBy(requiredHf / 10000)
-            .dividedBy(borrowPriceInfo.price);
+            .dividedBy(borrowPrice);
         requiredDebt.decimals = borrowAmount.decimals
         logger.info(`requiredDebtToRepay:: requiredDebt: ${requiredDebt}`);
         logger.info(`requiredDebtToRepay:: borrowAmount: ${borrowAmount}`);
