@@ -46,6 +46,7 @@ export class DeltaNeutraMM {
         this.config = config;
         const defaultStoreConfig = getDefaultStoreConfig(<Network>process.env.NETWOR);
         defaultStoreConfig.PASSWORD = process.env.ACCOUNT_SECURE_PASSWORD;
+        defaultStoreConfig.ACCOUNTS_FILE_NAME = 'accounts-risk.json'
         const store = new Store(this.config, defaultStoreConfig);
         
         if (!process.env.ACCOUNT_NAME) {
@@ -229,7 +230,7 @@ export class DeltaNeutraMM {
             console.log(`name: ${this.contractsInfo[i].name}`)
             const contract = this.contracts[this.contractsInfo[i].name];
             const result = await contract.get_settings();
-            this.contractsInfo[i].minHfBasisPoints = result.min_health_factor;
+            this.contractsInfo[i].minHfBasisPoints = BigInt(12500); // result.min_health_factor;
             this.contractsInfo[i].targetHfBasisPoints = result.target_health_factor;
         }
     }
