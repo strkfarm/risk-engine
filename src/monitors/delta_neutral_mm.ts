@@ -1,5 +1,6 @@
 import { pollHeartbeat } from "@/utils";
 import assert from "assert";
+import BigNumber from "bignumber.js";
 import { Account, Call, Contract, uint256 } from "starknet";
 import { FatalError } from "strkfarm-sdk";
 import { PricerRedis } from "strkfarm-sdk";
@@ -39,9 +40,14 @@ export class DeltaNeutraMM {
     readonly pragma: Pragma;
     zkLend: ZkLend;
     private initialised = false;
-    readonly account: any;
+    readonly account: Account;
     readonly telegramNotif: TelegramNotif;
     private isFirstRun = true;
+
+    ERRORS = {
+        ZKLEND_LOW_HF: 'ZkLend:: low health factor',
+        NOSTRA_LOW_HF: 'Nostra:: low health factor',
+    }
     constructor(config: IConfig) {
         this.config = config;
         const defaultStoreConfig = getDefaultStoreConfig(<Network>process.env.NETWOR);
@@ -52,7 +58,7 @@ export class DeltaNeutraMM {
         if (!process.env.ACCOUNT_NAME) {
             throw new Error('ACCOUNT_NAME not set');
         }
-        this.account = store.getAccount(process.env.ACCOUNT_NAME);
+        this.account = <any>store.getAccount(process.env.ACCOUNT_NAME);
         this.telegramNotif = new TelegramNotif(process.env.TG_TOKEN, false);
         this.pragma = new Pragma(this.config.provider);
         this.init();
@@ -93,19 +99,33 @@ export class DeltaNeutraMM {
             pollHeartbeat();
             const calls = await this.shouldRebalance();
             if (calls.length > 0) {
-                this.isFirstRun = true;
-                console.log(`Submitting batch of ${calls.length} calls`);
-                this.telegramNotif.sendMessage(`Submitting batch of ${calls.length} calls ♻️`);
-                // execute calls
-                const tx = await this.account.execute(calls);
-                logger.info(`Transaction submitted: ${tx.transaction_hash}`);
-                await this.config.provider.waitForTransaction(tx.transaction_hash);
-                logger.info(`Transaction confirmed: ${tx.transaction_hash}`);
-                this.telegramNotif.sendMessage(`DNMM:: Completed ${calls.length} rebalances ✅`);
+                try {
+                    this.isFirstRun = true;
+                    console.log(`Submitting batch of ${calls.length} calls`);
+                    this.telegramNotif.sendMessage(`Submitting batch of ${calls.length} calls ♻️`);
+                    // execute calls
+                    const tx = await this.account.execute(calls);
+                    logger.info(`Transaction submitted: ${tx.transaction_hash}`);
+                    const receipt = await this.config.provider.waitForTransaction(tx.transaction_hash);
+                    if (receipt.statusReceipt == 'success') {
+                        logger.info(`Transaction confirmed: ${tx.transaction_hash}`);
+                        this.telegramNotif.sendMessage(`DNMM:: Completed ${calls.length} rebalances ✅`);
+                    } else {
+                        logger.error(`Transaction failed: ${tx.transaction_hash}`);
+                        this.telegramNotif.sendMessage(`DNMM:: Transaction failed ❌`);
+                        throw new Error(`Transaction failed: ${tx.transaction_hash}`);
+                        // const err = await this.account.getTransactionTrace(tx.transaction_hash);
+                    }
+                } catch(err) {
+                    console.error(`DNMM Risk error`, err);
+                    this.telegramNotif.sendMessage(`DNMM Risk error ⚠️☠️🚨⚠️☠️🚨`)
+                }
             }
         } catch(err) {
             console.error(`DNMM Risk error`, err);
-            this.telegramNotif.sendMessage(`DNMM Risk error ⚠️☠️🚨⚠️☠️🚨`)
+            this.isFirstRun = true;
+            this.telegramNotif.sendMessage(`DNMM Risk error ⚠️☠️🚨`)
+            this.telegramNotif.sendMessage(`Wait sometime. If keeps repeating, you should intervene`);
         }
 
         setTimeout(async () => {
@@ -147,18 +167,82 @@ export class DeltaNeutraMM {
             // e.g. zkLend is unhealth. repay some debt in zklend by withdrawing from nostra
             const debtToRepay = await this.requiredDebtToRepay(contractInfo, Number(contractInfo.targetHfBasisPoints), zkLendPositions);
             logger.verbose(`generateRebalanceCall:: debtToRepay: ${debtToRepay}`);
-            return contract.populate('rebalance', {
-                amount: uint256.bnToUint256(debtToRepay.toString()),
-                shouldRepay: true,
-            });
+            let amount = debtToRepay;
+            let attempt = 1;
+            let factorBasisPercent = 50;
+            while (attempt < 30) {
+                try {
+                    logger.info(`Checking amount: ${amount}, shouldRepay: true`);
+                    const call = contract.populate('rebalance', {
+                        amount: uint256.bnToUint256(amount.toString()),
+                        shouldRepay: true,
+                    });
+                    const est = await this.account.estimateFee([call]);
+                    logger.info(`Using amount: ${amount.toString()}, shouldRepay: true`);
+                    this.telegramNotif.sendMessage(`Calldata: amount ${amount.toString()}, shouldRepay: 1`)
+                    return call;
+                } catch(err) {
+                    attempt++;
+                    console.log(`estimate failed2`)
+                    if (attempt >= 30) {
+                        this.telegramNotif.sendMessage(`Failed to estimate fee after 30 attempts, error: ${err.message}`);
+                        throw err;
+                    }
+                    const isLowZkLendHf = err.message.includes(this.ERRORS.ZKLEND_LOW_HF);
+                    const isLowNostraHf = err.message.includes(this.ERRORS.NOSTRA_LOW_HF);
+                    if (isLowZkLendHf) {
+                        // increase amount by factorPercent and check
+                        logger.info(`zkLendHFLow: Increasing amount by ${factorBasisPercent}`);
+                        amount = (new BigNumber(amount)).mul(10000 + factorBasisPercent).div(10000).toFixed(0);
+                    } else if (isLowNostraHf) {
+                        // decrease amount by factorPercent and check
+                        logger.info(`nostraHfLow: decreasing amount by ${factorBasisPercent}`);
+                        amount = (new BigNumber(amount)).mul(10000 - factorBasisPercent).div(10000).toFixed(0);
+                    } else {
+                        this.telegramNotif.sendMessage(`Unexpected Error: ${err.message}`);
+                        throw err;
+                    }
+                    await new Promise((res) => setTimeout(res, 1000))
+                }
+            }
         } else if (currentHf2 < contractInfo.minHfBasisPoints) {
             // e.g. nostra is unhealth. add collateral in nostra by borrowing from zkLend
             const debtToBorrow = await this.requiredDebtToRepay(contractInfo, Number(contractInfo.targetHfBasisPoints), zkLendPositions);
             logger.verbose(`generateRebalanceCall:: debtToBorrow: ${debtToBorrow}`);
-            return contract.populate('rebalance', {
-                amount: uint256.bnToUint256(debtToBorrow.toString()),
-                shouldRepay: false,
-            });
+            let amount = debtToBorrow;
+            let attempt = 1;
+            let factorBasisPercent = 50;
+            while (attempt < 30) {
+                try {
+                    logger.info(`Checking amount: ${amount}, shouldRepay: false`);
+                    const call = contract.populate('rebalance', {
+                        amount: uint256.bnToUint256(amount.toString()),
+                        shouldRepay: false,
+                    });
+                    const est = await this.account.estimateFee([call]);
+                    logger.info(`Using amount: ${amount.toString()}`);
+                    this.telegramNotif.sendMessage(`Calldata: amount ${amount.toString()}, shouldRepay: 0`)
+                    return call;
+                } catch(err) {
+                    attempt++;
+                    console.log(`estimate failed`)
+                    if (attempt >= 30) {
+                        this.telegramNotif.sendMessage(`Failed to estimate fee after 30 attempts, error: ${err.message}`);
+                        throw err;
+                    }
+                    const isLowZkLendHf = err.message.includes(this.ERRORS.ZKLEND_LOW_HF);
+                    const isLowNostraHf = err.message.includes(this.ERRORS.NOSTRA_LOW_HF);
+                    if (isLowZkLendHf) {
+                        amount = (new BigNumber(amount)).mul(10000 - factorBasisPercent).div(10000).toFixed(0);
+                    } else if (isLowNostraHf) {
+                        amount = (new BigNumber(amount)).mul(10000 + factorBasisPercent).div(10000).toFixed(0);
+                    } else {
+                        this.telegramNotif.sendMessage(`Unexpected Error: ${err.message}`);
+                        throw err;
+                    }
+                    await new Promise((res) => setTimeout(res, 1000))
+                }
+            }
         } else {
             throw new Error('Invalid health factors');
         }
