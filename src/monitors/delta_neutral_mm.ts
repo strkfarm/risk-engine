@@ -34,6 +34,13 @@ export class DeltaNeutraMM {
         targetHfBasisPoints: BigInt(0),
         mainToken: 'STRK',
         secondaryToken: 'ETH',
+    }, {
+        name: 'DeltaNeutralLoopingETHUSDC',
+        address: '0x9d23d9b1fa0db8c9d75a1df924c3820e594fc4ab1475695889286f3f6df250',
+        minHfBasisPoints: BigInt(0),
+        targetHfBasisPoints: BigInt(0),
+        mainToken: 'ETH',
+        secondaryToken: 'USDC',
     }];
 
     readonly contracts: {[key: string]: Contract} = {}
