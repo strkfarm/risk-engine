@@ -5766,8 +5766,8 @@ strip-json-comments@^3.1.1:
   integrity sha512-6fPc+R4ihwqP6N/aIv2f1gMH8lOVtWQHoqC4yK6oSDVVocumAsfCqjkXnqiYMhmMwS/mEHLp7Vehlt3ql6lEig==
 
 "strkfarm-sdk@git+https://github.com/strkfarm/sdk-ts.git#main":
-  version "1.0.1"
-  resolved "git+https://github.com/strkfarm/sdk-ts.git#b404d576dadfc48d4653a673386101e2ecd04b3a"
+  version "1.0.2"
+  resolved "git+https://github.com/strkfarm/sdk-ts.git#b583b13a2bb5b74f94d2ae5bc10c74bffd63a3c4"
   dependencies:
     axios "^1.7.2"
     bignumber.js "4.0.4"
