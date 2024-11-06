@@ -308,7 +308,7 @@ export class DeltaNeutraMM {
         logger.info(`requiredDebtToRepay:: requiredDebt: ${requiredDebt}`);
         logger.info(`requiredDebtToRepay:: borrowAmount: ${borrowAmount}`);
 
-        if (requiredDebt < borrowAmount) {
+        if (requiredDebt.lt(borrowAmount)) {
             return borrowAmount.minus(requiredDebt.toFixed(6)).toWei();
         } else {
             return requiredDebt.minus(borrowAmount.toFixed(6)).toWei();
