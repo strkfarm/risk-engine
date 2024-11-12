@@ -15,7 +15,8 @@ export interface ContractInfo {
     minHfBasisPoints: BigInt,
     targetHfBasisPoints: BigInt,
     mainToken: string,
-    secondaryToken: string
+    secondaryToken: string,
+    is_inverted?: boolean,
 }
 
 export class DeltaNeutraMM {
@@ -41,6 +42,14 @@ export class DeltaNeutraMM {
         targetHfBasisPoints: BigInt(0),
         mainToken: 'ETH',
         secondaryToken: 'USDC',
+    }, {
+        name: 'DeltaNeutralLoopingETHUSDC2',
+        address: '0x9140757f8fb5748379be582be39d6daf704cc3a0408882c0d57981a885eed9',
+        minHfBasisPoints: BigInt(0),
+        targetHfBasisPoints: BigInt(0),
+        mainToken: 'ETH',
+        secondaryToken: 'USDC',
+        is_inverted: true,
     }];
 
     readonly contracts: {[key: string]: Contract} = {}
@@ -239,9 +248,9 @@ export class DeltaNeutraMM {
                     }
                     const isLowZkLendHf = err.message.includes(this.ERRORS.ZKLEND_LOW_HF);
                     const isLowNostraHf = err.message.includes(this.ERRORS.NOSTRA_LOW_HF);
-                    if (isLowZkLendHf) {
+                    if ((!contractInfo.is_inverted && isLowZkLendHf) || (contractInfo.is_inverted && isLowNostraHf)) {
                         amount = (new BigNumber(amount)).mul(10000 - factorBasisPercent).div(10000).toFixed(0);
-                    } else if (isLowNostraHf) {
+                    } else if ((!contractInfo.is_inverted && isLowNostraHf) || (contractInfo.is_inverted && isLowZkLendHf)) {
                         amount = (new BigNumber(amount)).mul(10000 + factorBasisPercent).div(10000).toFixed(0);
                     } else {
                         this.telegramNotif.sendMessage(`Unexpected Error: ${err.message}`);
@@ -267,8 +276,8 @@ export class DeltaNeutraMM {
     }
 
     async requiredDebtToRepay(contractInfo: ContractInfo, requiredHf: number, positions: ILendingPosition[]) {
-        const mainToken = contractInfo.mainToken;
-        const secondaryToken = contractInfo.secondaryToken;
+        const mainToken = contractInfo.is_inverted ? contractInfo.secondaryToken : contractInfo.mainToken;
+        const secondaryToken = contractInfo.is_inverted ? contractInfo.mainToken : contractInfo.secondaryToken;
         const collateralAmount = positions.find(p => p.tokenSymbol === mainToken)?.supplyAmount;
         const mainTokenInfo = this.zkLend.tokens.find(t => t.symbol === mainToken);
         if (!mainTokenInfo) {
@@ -300,18 +309,38 @@ export class DeltaNeutraMM {
         }
         logger.info(`requiredDebtToRepay:: borrowFactor: ${borrowFactor}`);
 
-        const requiredDebt = collateralUsd
-            .multipliedBy(collateralFactor.toFixed(6))
-            .dividedBy(requiredHf / 10000)
-            .dividedBy(borrowPrice);
-        requiredDebt.decimals = borrowAmount.decimals
-        logger.info(`requiredDebtToRepay:: requiredDebt: ${requiredDebt}`);
-        logger.info(`requiredDebtToRepay:: borrowAmount: ${borrowAmount}`);
+        // if not inverted
+        if (!contractInfo.is_inverted) {
+            // ! todo why not use borrow factor?
+            const requiredDebt = collateralUsd
+                .multipliedBy(collateralFactor.toFixed(6))
+                .multipliedBy(borrowFactor.toFixed(6))
+                .dividedBy(requiredHf / 10000)
+                .dividedBy(borrowPrice);
+            requiredDebt.decimals = borrowAmount.decimals
+            logger.info(`requiredDebtToRepay:: requiredDebt: ${requiredDebt}`);
+            logger.info(`requiredDebtToRepay:: borrowAmount: ${borrowAmount}`);
 
-        if (requiredDebt.lt(borrowAmount)) {
-            return borrowAmount.minus(requiredDebt.toFixed(6)).toWei();
+            if (requiredDebt.lt(borrowAmount)) {
+                return borrowAmount.minus(requiredDebt.toFixed(6)).toWei();
+            } else {
+                return requiredDebt.minus(borrowAmount.toFixed(6)).toWei();
+            }
         } else {
-            return requiredDebt.minus(borrowAmount.toFixed(6)).toWei();
+            const borrowUsd = borrowAmount.multipliedBy(borrowPrice);
+            const requiredCollateral = borrowUsd.multipliedBy(requiredHf / 10000)
+                                        .dividedBy(colPrice)
+                                        .dividedBy(collateralFactor.toFixed(6))
+                                        .dividedBy(borrowFactor.toFixed(6));
+            requiredCollateral.decimals = collateralAmount.decimals;
+            logger.info(`requiredDebtToRepay:: requiredCollateral: ${requiredCollateral}`);
+            logger.info(`requiredDebtToRepay:: collateralAmount: ${collateralAmount}`);
+
+            if (requiredCollateral.lt(collateralAmount)) {
+                return collateralAmount.minus(requiredCollateral.toFixed(6)).toWei();
+            } else {
+                return requiredCollateral.minus(collateralAmount.toFixed(6)).toWei();
+            }
         }
     }
 
