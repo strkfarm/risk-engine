@@ -1,6 +1,6 @@
 import * as dotenv from 'dotenv';
 dotenv.config();
-import { getMainnetConfig, Global, logger, PricerRedis } from "strkfarm-sdk";
+import { getMainnetConfig, Global, logger, PricerRedis } from "@strkfarm/sdk";
 
 async function run() {
   const tokens = await Global.getTokens();

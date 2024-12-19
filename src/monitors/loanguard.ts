@@ -1,4 +1,4 @@
-// import {AutoCompounderSTRK, ContractAddr, FatalError, Global, IConfig, Initializable, logger, MarginType, Pricer, Web3Number, ZkLend} from 'strkfarm-sdk';
+// import {AutoCompounderSTRK, ContractAddr, FatalError, Global, IConfig, Initializable, logger, MarginType, Pricer, Web3Number, ZkLend} from '@strkfarm/sdk';
 // import { PrismaClient, subscriptions } from '@prisma/client';
 // import { Account, Call, Contract, TransactionExecutionStatus } from 'starknet';
 // const assert = require('assert');

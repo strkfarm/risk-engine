@@ -1,6 +1,6 @@
 import * as dotenv from 'dotenv';
 dotenv.config();
-import { getMainnetConfig } from "strkfarm-sdk";
+import { getMainnetConfig } from "@strkfarm/sdk";
 import { DeltaNeutraMM } from "@/monitors/delta_neutral_mm";
 
 async function main() {

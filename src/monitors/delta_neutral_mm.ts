@@ -2,12 +2,12 @@ import { pollHeartbeat } from "@/utils";
 import assert from "assert";
 import BigNumber from "bignumber.js";
 import { Account, Call, Contract, uint256 } from "starknet";
-import { FatalError } from "strkfarm-sdk";
-import { PricerRedis } from "strkfarm-sdk";
-import { getDefaultStoreConfig } from "strkfarm-sdk";
-import { Network } from "strkfarm-sdk";
+import { FatalError } from "@strkfarm/sdk";
+import { PricerRedis } from "@strkfarm/sdk";
+import { getDefaultStoreConfig } from "@strkfarm/sdk";
+import { Network } from "@strkfarm/sdk";
 import { ContractAddr, Global, IConfig, ILendingPosition, 
-    logger, Pricer, Store, TelegramNotif, ZkLend, Pragma } from "strkfarm-sdk";
+    logger, Pricer, Store, TelegramNotif, ZkLend, Pragma } from "@strkfarm/sdk";
 
 export interface ContractInfo {
     address: string,
