@@ -2,7 +2,7 @@ import { pollHeartbeat } from "@/utils";
 import assert from "assert";
 import BigNumber from "bignumber.js";
 import { Account, Call, Contract, uint256 } from "starknet";
-import { FatalError } from "@strkfarm/sdk";
+import { FatalError, MarginType, Web3Number } from "@strkfarm/sdk";
 import { PricerRedis } from "@strkfarm/sdk";
 import { getDefaultStoreConfig } from "@strkfarm/sdk";
 import { Network } from "@strkfarm/sdk";
@@ -17,6 +17,9 @@ export interface ContractInfo {
     mainToken: string,
     secondaryToken: string,
     is_inverted?: boolean,
+    requiredDebtToRepay: (contractInfo: ContractInfo, requiredHf: number, positions: ILendingPosition[]) => Promise<string>
+    getPositions: (user: ContractAddr) => Promise<ILendingPosition[]>
+    getShouldRepay: (currentHf1: BigInt, currentHf2: BigInt, minHf: BigInt) => Promise<boolean>
 }
 
 export class DeltaNeutraMM {
@@ -28,6 +31,9 @@ export class DeltaNeutraMM {
         targetHfBasisPoints: BigInt(0),
         mainToken: 'USDC',
         secondaryToken: 'ETH',
+        requiredDebtToRepay: this.requiredDebtToRepay.bind(this),
+        getPositions: this.getZkLendPositions.bind(this),
+        getShouldRepay: this.getShouldRepayZkLend.bind(this),
     }, {
         name: 'DeltaNeutralLoopingSTRKETH',
         address: '0x20d5fc4c9df4f943ebb36078e703369c04176ed00accf290e8295b659d2cea6',
@@ -35,6 +41,9 @@ export class DeltaNeutraMM {
         targetHfBasisPoints: BigInt(0),
         mainToken: 'STRK',
         secondaryToken: 'ETH',
+        requiredDebtToRepay: this.requiredDebtToRepay.bind(this),
+        getPositions: this.getZkLendPositions.bind(this),
+        getShouldRepay: this.getShouldRepayZkLend.bind(this),
     }, {
         name: 'DeltaNeutralLoopingETHUSDC',
         address: '0x9d23d9b1fa0db8c9d75a1df924c3820e594fc4ab1475695889286f3f6df250',
@@ -42,6 +51,9 @@ export class DeltaNeutraMM {
         targetHfBasisPoints: BigInt(0),
         mainToken: 'ETH',
         secondaryToken: 'USDC',
+        requiredDebtToRepay: this.requiredDebtToRepay.bind(this),
+        getPositions: this.getZkLendPositions.bind(this),
+        getShouldRepay: this.getShouldRepayZkLend.bind(this),
     }, {
         name: 'DeltaNeutralLoopingETHUSDC2',
         address: '0x9140757f8fb5748379be582be39d6daf704cc3a0408882c0d57981a885eed9',
@@ -50,10 +62,25 @@ export class DeltaNeutraMM {
         mainToken: 'ETH',
         secondaryToken: 'USDC',
         is_inverted: true,
+        requiredDebtToRepay: this.requiredDebtToRepay.bind(this),
+        getPositions: this.getZkLendPositions.bind(this),
+        getShouldRepay: this.getShouldRepayZkLend.bind(this),
+    }, {
+        name: 'DeltaNeutralLoopingSTRKxSTRK',
+        address: '0x7023a5cadc8a5db80e4f0fde6b330cbd3c17bbbf9cb145cbabd7bd5e6fb7b0b',
+        minHfBasisPoints: BigInt(0),
+        targetHfBasisPoints: BigInt(0),
+        mainToken: 'STRK',
+        secondaryToken: 'xSTRK',
+        requiredDebtToRepay: this.requiredDebtToRepayEndurVesu.bind(this),
+        getPositions: this.getVesuPositions.bind(this),
+        is_inverted: true,
+        getShouldRepay: this.getShouldRepayEndurVesu.bind(this),
     }];
 
     readonly contracts: {[key: string]: Contract} = {}
     readonly pragma: Pragma;
+    private pricer: Pricer;
     zkLend: ZkLend;
     private initialised = false;
     readonly account: Account;
@@ -63,6 +90,8 @@ export class DeltaNeutraMM {
     ERRORS = {
         ZKLEND_LOW_HF: 'ZkLend:: low health factor',
         NOSTRA_LOW_HF: 'Nostra:: low health factor',
+        MM1_LOW_HF: 'MM1:: low health factor',
+        MM2_LOW_HF: 'MM2:: low health factor',
     }
     constructor(config: IConfig) {
         this.config = config;
@@ -82,10 +111,11 @@ export class DeltaNeutraMM {
 
     async init() {
         this.telegramNotif.sendMessage(`Starting Delta Neutral MM risk manager`);
-        const cls = await this.config.provider.getClassAt(this.contractsInfo[0].address);
-        this.contractsInfo.forEach(c => {
+        for(let i=0; i<this.contractsInfo.length; ++i) {
+            const c = this.contractsInfo[i];
+            const cls = await this.config.provider.getClassAt(c.address);
             this.contracts[c.name] = new Contract(cls.abi, c.address, <any>this.config.provider)
-        })
+        }
         await this.loadSettings();
 
         const tokens = await Global.getTokens();
@@ -94,6 +124,7 @@ export class DeltaNeutraMM {
           throw new FatalError('REDIS_URL not set');
         }
         await pricer.initRedis(process.env.REDIS_URL);
+        this.pricer = pricer;
         this.zkLend = new ZkLend(this.config, pricer);
         await this.zkLend.waitForInitilisation();
         this.initialised = true;
@@ -176,91 +207,125 @@ export class DeltaNeutraMM {
         return calls;
     }
 
-    async generateRebalanceCall(currentHf1: BigInt, currentHf2: BigInt, contractInfo: ContractInfo, contract: Contract) {
-        const zkLendPositions = await this.zkLend.getPositions(ContractAddr.from(contract.address));
+    async getZkLendPositions(user: ContractAddr) {
+        if (!this.zkLend) return [];
+        const zkLendPositions = await this.zkLend.getPositions(user);
+        return zkLendPositions;
+    }
+
+    async getShouldRepayEndurVesu(currentHf1: BigInt, currentHf2: BigInt, minHf: BigInt) {
+        // in this strategy, currentHf1 doesn't go down
+        if (currentHf2 < minHf) return true;
+        throw new Error('Invalid health factors');
+    }
+
+    /** Reads positionn data from vesu API and returns required info */
+    async _getVesuData(user: ContractAddr) {
+        const resp = await fetch(
+            `https://api.vesu.xyz/positions?walletAddress=${user.address}`,
+        );
+        const data = await resp.json();
+        if (!data.data || data.data.length == 0) {
+            throw new Error('No positions found');
+        }
+        return {
+            max_ltv: Web3Number.fromWei(data.data[0].ltv.max.value, data.data[0].ltv.max.decimals),
+            collateral: {
+                tokenName: data.data[0].collateral.name,
+                tokenSymbol: data.data[0].collateral.symbol,
+                value: Web3Number.fromWei(data.data[0].collateral.value, data.data[0].collateral.decimals),
+                usdPrice: Web3Number.fromWei(data.data[0].collateral.usdPrice.value, data.data[0].collateral.usdPrice.decimals),
+            },
+            debt: {
+                tokenName: data.data[0].debt.name,
+                tokenSymbol: data.data[0].debt.symbol,
+                value: Web3Number.fromWei(data.data[0].debt.value, data.data[0].debt.decimals),
+                usdPrice: Web3Number.fromWei(data.data[0].debt.usdPrice.value, data.data[0].debt.usdPrice.decimals),
+            }
+        }
+    }
+
+    /** Returns vesu positions info as ILendingPosition[] */
+    async getVesuPositions(user: ContractAddr) {
+        const resp = await this._getVesuData(user);
+
+        const collateralPosition: ILendingPosition = {
+            tokenName: resp.collateral.tokenName,
+            tokenSymbol: resp.collateral.tokenSymbol,
+            marginType: MarginType.NONE,
+            supplyAmount: resp.collateral.value,
+            supplyUSD: resp.collateral.usdPrice,
+            debtAmount: Web3Number.fromWei(0, 0),
+            debtUSD: Web3Number.fromWei(0, 0),
+        }
+
+        const debtPosition: ILendingPosition = {
+            tokenName: resp.debt.tokenName,
+            tokenSymbol: resp.debt.tokenSymbol,
+            marginType: MarginType.NONE,
+            supplyAmount: Web3Number.fromWei(0, 0),
+            supplyUSD: Web3Number.fromWei(0, 0),
+            debtAmount: resp.debt.value,
+            debtUSD: resp.debt.usdPrice
+        }
+
+        return [collateralPosition, debtPosition];
+    }
+
+    async getShouldRepayZkLend(currentHf1: BigInt, currentHf2: BigInt, minHf: BigInt) {
+        if (currentHf1 < minHf) return true;
+        if (currentHf2 < minHf) return false;
+        throw new Error('Invalid health factors');
+    }
+
+    async generateRebalanceCall(currentHf1: BigInt, currentHf2: BigInt, contractInfo: ContractInfo, contract: Contract): Promise<Call> {
+        const positions = await contractInfo.getPositions(ContractAddr.from(contractInfo.address));
         const minHf: BigInt = contractInfo.minHfBasisPoints;
-        if (currentHf1 < minHf) {
-            // e.g. zkLend is unhealth. repay some debt in zklend by withdrawing from nostra
-            const debtToRepay = await this.requiredDebtToRepay(contractInfo, Number(contractInfo.targetHfBasisPoints), zkLendPositions);
-            logger.verbose(`generateRebalanceCall:: debtToRepay: ${debtToRepay}`);
-            let amount = debtToRepay;
-            let attempt = 1;
-            let factorBasisPercent = 50;
-            while (attempt < 30) {
-                try {
-                    logger.info(`Checking amount: ${amount}, shouldRepay: true`);
-                    const call = contract.populate('rebalance', {
-                        amount: uint256.bnToUint256(amount.toString()),
-                        shouldRepay: true,
-                    });
-                    const est = await this.account.estimateFee([call]);
-                    logger.info(`Using amount: ${amount.toString()}, shouldRepay: true`);
-                    this.telegramNotif.sendMessage(`Calldata: amount ${amount.toString()}, shouldRepay: 1`)
-                    return call;
-                } catch(err) {
-                    attempt++;
-                    console.log(`estimate failed2`)
-                    if (attempt >= 30) {
-                        this.telegramNotif.sendMessage(`Failed to estimate fee after 30 attempts, error: ${err.message}`);
-                        throw err;
-                    }
-                    const isLowZkLendHf = err.message.includes(this.ERRORS.ZKLEND_LOW_HF);
-                    const isLowNostraHf = err.message.includes(this.ERRORS.NOSTRA_LOW_HF);
-                    if (isLowZkLendHf) {
-                        // increase amount by factorPercent and check
-                        logger.info(`zkLendHFLow: Increasing amount by ${factorBasisPercent}`);
-                        amount = (new BigNumber(amount)).mul(10000 + factorBasisPercent).div(10000).toFixed(0);
-                    } else if (isLowNostraHf) {
-                        // decrease amount by factorPercent and check
-                        logger.info(`nostraHfLow: decreasing amount by ${factorBasisPercent}`);
-                        amount = (new BigNumber(amount)).mul(10000 - factorBasisPercent).div(10000).toFixed(0);
-                    } else {
-                        this.telegramNotif.sendMessage(`Unexpected Error: ${err.message}`);
-                        throw err;
-                    }
-                    await new Promise((res) => setTimeout(res, 1000))
+        const debtToRepay = await contractInfo.requiredDebtToRepay(contractInfo, Number(contractInfo.targetHfBasisPoints), positions);
+        logger.verbose(`generateRebalanceCall:: debtToRepay: ${debtToRepay}`);
+        let amount = debtToRepay;
+        let attempt = 1;
+        let factorBasisPercent = 50;
+        const shouldRepay = await contractInfo.getShouldRepay(currentHf1, currentHf2, minHf);
+        while (attempt < 30) {
+            try {
+                logger.info(`Checking amount: ${amount}, shouldRepay: ${shouldRepay}`);
+                const call = contract.populate('rebalance', {
+                    amount: uint256.bnToUint256(amount.toString()),
+                    shouldRepay: shouldRepay,
+                });
+                const est = await this.account.estimateFee([call]);
+                logger.info(`Using amount: ${amount.toString()}, shouldRepay: ${shouldRepay}`);
+                this.telegramNotif.sendMessage(`Calldata: amount ${amount.toString()}, shouldRepay: ${shouldRepay ? 1 : 0}`)
+                return call;
+            } catch(err) {
+                attempt++;
+                console.log(`estimate failed2`)
+                if (attempt >= 30) {
+                    this.telegramNotif.sendMessage(`Failed to estimate fee after 30 attempts, error: ${err.message}`);
+                    throw err;
                 }
-            }
-        } else if (currentHf2 < contractInfo.minHfBasisPoints) {
-            // e.g. nostra is unhealth. add collateral in nostra by borrowing from zkLend
-            const debtToBorrow = await this.requiredDebtToRepay(contractInfo, Number(contractInfo.targetHfBasisPoints), zkLendPositions);
-            logger.verbose(`generateRebalanceCall:: debtToBorrow: ${debtToBorrow}`);
-            let amount = debtToBorrow;
-            let attempt = 1;
-            let factorBasisPercent = 50;
-            while (attempt < 30) {
-                try {
-                    logger.info(`Checking amount: ${amount}, shouldRepay: false`);
-                    const call = contract.populate('rebalance', {
-                        amount: uint256.bnToUint256(amount.toString()),
-                        shouldRepay: false,
-                    });
-                    const est = await this.account.estimateFee([call]);
-                    logger.info(`Using amount: ${amount.toString()}`);
-                    this.telegramNotif.sendMessage(`Calldata: amount ${amount.toString()}, shouldRepay: 0`)
-                    return call;
-                } catch(err) {
-                    attempt++;
-                    console.log(`estimate failed`)
-                    if (attempt >= 30) {
-                        this.telegramNotif.sendMessage(`Failed to estimate fee after 30 attempts, error: ${err.message}`);
-                        throw err;
-                    }
-                    const isLowZkLendHf = err.message.includes(this.ERRORS.ZKLEND_LOW_HF);
-                    const isLowNostraHf = err.message.includes(this.ERRORS.NOSTRA_LOW_HF);
-                    if ((!contractInfo.is_inverted && isLowZkLendHf) || (contractInfo.is_inverted && isLowNostraHf)) {
-                        amount = (new BigNumber(amount)).mul(10000 - factorBasisPercent).div(10000).toFixed(0);
-                    } else if ((!contractInfo.is_inverted && isLowNostraHf) || (contractInfo.is_inverted && isLowZkLendHf)) {
-                        amount = (new BigNumber(amount)).mul(10000 + factorBasisPercent).div(10000).toFixed(0);
-                    } else {
-                        this.telegramNotif.sendMessage(`Unexpected Error: ${err.message}`);
-                        throw err;
-                    }
-                    await new Promise((res) => setTimeout(res, 1000))
+                const isLowLending1 = err.message.includes(this.ERRORS.ZKLEND_LOW_HF) || err.message.includes(this.ERRORS.MM1_LOW_HF);
+                const isLowLending2 = err.message.includes(this.ERRORS.NOSTRA_LOW_HF) || err.message.includes(this.ERRORS.MM2_LOW_HF);
+
+                // depending on following conditions, we try to increase/reduce amount
+                const condition1Sign = shouldRepay ? 1 : -1; // if not inverted
+                const condition2Sign = contractInfo.is_inverted ? -1 : 1; // if inverted
+                const finalSign = condition1Sign * condition2Sign;
+                if (isLowLending1) {
+                    // increase amount by factorPercent and check
+                    logger.info(`isLowLending1: sign: ${finalSign}, amount by ${factorBasisPercent}`);
+                    amount = (new BigNumber(amount)).mul(10000 + (finalSign * factorBasisPercent)).div(10000).toFixed(0);
+                } else if (isLowLending2) {
+                    // decrease amount by factorPercent and check
+                    logger.info(`isLowLending2: sign: ${finalSign}, amount by ${factorBasisPercent}`);
+                    amount = (new BigNumber(amount)).mul(10000 - (finalSign * factorBasisPercent)).div(10000).toFixed(0);
+                } else {
+                    this.telegramNotif.sendMessage(`Unexpected Error: ${err.message}`);
+                    throw err;
                 }
+                await new Promise((res) => setTimeout(res, 1000))
             }
-        } else {
-            throw new Error('Invalid health factors');
         }
     }
 
@@ -344,13 +409,51 @@ export class DeltaNeutraMM {
         }
     }
 
+    async requiredDebtToRepayEndurVesu(contractInfo: ContractInfo, requiredHf: number, positions: ILendingPosition[]) {
+        const mainToken = contractInfo.is_inverted ? contractInfo.secondaryToken : contractInfo.mainToken;
+        const secondaryToken = contractInfo.is_inverted ? contractInfo.mainToken : contractInfo.secondaryToken;
+        const collateralPosition = positions.find(p => p.tokenSymbol === mainToken);
+        const debtPosition = positions.find(p => p.tokenSymbol === secondaryToken);
+        const collateralAmount = collateralPosition?.supplyAmount;
+        const collateralUsd = collateralPosition?.supplyUSD;
+        if (!collateralUsd || collateralAmount.eq(0)) {
+            throw new FatalError('Vesu:Collateral amount not found');
+        }
+        const maxLTV = (await this._getVesuData(ContractAddr.from(contractInfo.address))).max_ltv;
+        logger.info(`Vesu:requiredDebtToRepay:: collateralAmount: ${collateralUsd}, maxLTV: ${maxLTV}`);
+
+        const borrowUSD = debtPosition?.debtUSD;
+        if (!borrowUSD || borrowUSD.eq(0)) {
+            throw new FatalError('Vesu:Borrow amount not found');
+        }
+        logger.info(`Vesu:requiredDebtToRepay:: borrowUSD: ${borrowUSD}`);
+
+        // todo 
+        let xSTRKPrice = await this.pricer.getPrice(mainToken);
+        let STRKPrice = debtPosition.debtAmount.dividedBy(debtPosition.debtUSD.toString());
+        logger.info(`Vesu:requiredDebtToRepay:: xSTRKPrice: ${xSTRKPrice.price}`);
+        logger.info(`Vesu:requiredDebtToRepay:: STRKPrice: ${STRKPrice}`);
+        // hf = (collateralUSD - amountUSD) * max_ltv / (borrowUSD - amountUSD)
+        // (collateralUSD - amountUSD) * max_ltv = hf * (borrowUSD - amountUSD)
+        // => amountUSD = (collateralUSD * max_ltv - hf * borrowUSD) / (max_ltv - hf)
+
+        const numerator = collateralUsd.multipliedBy(maxLTV.toString()).minus(borrowUSD.multipliedBy(requiredHf / 10000).toString());
+        logger.info(`requiredDebtToRepayVesu:: numerator: ${numerator}`);
+        const denominator = maxLTV.minus(requiredHf / 10000);
+        logger.info(`requiredDebtToRepayVesu:: denominator: ${denominator}`);
+        const amountUSD = numerator.dividedBy(denominator.toString());
+        const amountxSTRK = amountUSD.multipliedBy(STRKPrice.toString()).dividedBy(xSTRKPrice.toString()).toWei();
+        logger.info(`requiredDebtToRepayVesu:: amountUSD: ${amountUSD}`);
+        logger.info(`requiredDebtToRepayVesu:: amountxSTRK: ${amountxSTRK}`);
+        return amountxSTRK;
+    }
 
     async loadSettings() {
         for (let i=0; i<this.contractsInfo.length; ++i) {
             console.log(`name: ${this.contractsInfo[i].name}`)
             const contract = this.contracts[this.contractsInfo[i].name];
             const result = await contract.get_settings();
-            this.contractsInfo[i].minHfBasisPoints = BigInt(12500); // result.min_health_factor;
+            this.contractsInfo[i].minHfBasisPoints = result.target_health_factor - 500n;
             this.contractsInfo[i].targetHfBasisPoints = result.target_health_factor;
         }
     }
