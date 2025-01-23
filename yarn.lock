@@ -1126,10 +1126,10 @@
   resolved "https://registry.npmjs.org/@starknet-io/types-js/-/types-js-0.7.7.tgz"
   integrity sha512-WLrpK7LIaIb8Ymxu6KF/6JkGW1sso988DweWu7p5QY/3y7waBIiPvzh27D9bX5KIJNRDyOoOVoHVEKYUYWZ/RQ==
 
-"@strkfarm/sdk@^1.0.12":
-  version "1.0.12"
-  resolved "https://registry.npmjs.org/@strkfarm/sdk/-/sdk-1.0.12.tgz"
-  integrity sha512-vQn9Uwm6XW4SfTta78kb8+RseHP5oBldp7qSgvDxOZwRmvMdBSw5nU7UBzQ75e+S1qoZ16y5jf08nkSEa8Spag==
+"@strkfarm/sdk@^1.0.13":
+  version "1.0.13"
+  resolved "https://registry.npmjs.org/@strkfarm/sdk/-/sdk-1.0.13.tgz"
+  integrity sha512-7c9PtHW4/WkMiea9wWf4ourob93kJUuk+hZEbfW8dqSK9q/bpM76U2hZgP2FAqGbloJIzAKZlF0RVnUuzArVaQ==
   dependencies:
     axios "^1.7.2"
     bignumber.js "4.0.4"
