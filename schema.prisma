@@ -7,19 +7,13 @@ datasource db {
   url      = env("POSTGRES_CONNECTION_STRING")
 }
 
-model subscriptions {
+model cl_vault_record {
   block_number Int
-  txIndex      Int
-  eventIndex   Int
-  txHash       String
+  timestamp    Int
 
-  user                 String
-  is_active            Boolean
-  min_health_factor    Int
-  max_health_factor    Int
-  target_health_factor Int
-  timestamp            Int
-  cursor               BigInt? @map("_cursor")
+  contract_address String
+  is_below_range Boolean
+  is_above_range Boolean
 
-  @@unique([block_number, txIndex, eventIndex], name: "event_id")
+  @@unique([contract_address, timestamp], name: "id")
 }
