@@ -1,4 +1,4 @@
-import { pollHeartbeat } from "@/utils";
+import { getAccount, pollHeartbeat } from "@/utils";
 import assert from "assert";
 import BigNumber from "bignumber.js";
 import { Account, Call, Contract, uint256 } from "starknet";
@@ -95,15 +95,7 @@ export class DeltaNeutraMM {
     }
     constructor(config: IConfig) {
         this.config = config;
-        const defaultStoreConfig = getDefaultStoreConfig(<Network>process.env.NETWOR);
-        defaultStoreConfig.PASSWORD = process.env.ACCOUNT_SECURE_PASSWORD;
-        defaultStoreConfig.ACCOUNTS_FILE_NAME = 'accounts-risk.json'
-        const store = new Store(this.config, defaultStoreConfig);
-        
-        if (!process.env.ACCOUNT_NAME) {
-            throw new Error('ACCOUNT_NAME not set');
-        }
-        this.account = <any>store.getAccount(process.env.ACCOUNT_NAME);
+        this.account = getAccount(config);
         this.telegramNotif = new TelegramNotif(process.env.TG_TOKEN, false);
         this.pragma = new Pragma(this.config.provider);
         this.init();
