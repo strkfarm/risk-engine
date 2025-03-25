@@ -7,7 +7,7 @@ import { VesuRebalancer } from '@/monitors/vesu_rebalance';
 import { TransactionManager } from '@/utils';
 
 async function main() {
-  const config = getMainnetConfig();
+  const config = getMainnetConfig(process.env.RPC_URL!);
   const txManager = new TransactionManager(config);
 
   const dnmm = new DeltaNeutraMM(config);
