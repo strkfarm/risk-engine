@@ -12,10 +12,10 @@ export class VesuRebalancer {
   
   private initialised = false;
   
-  constructor(config: IConfig, TransactionManager) {
+  constructor(config: IConfig, txManager: TransactionManager) {
     this.config = config;
     this.telegramNotif = new TelegramNotif(process.env.TG_TOKEN, false);
-    this.transactionManager = TransactionManager;
+    this.transactionManager = txManager;
     this.init();
   }
 

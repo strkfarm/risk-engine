@@ -1,72 +1,52 @@
-import { pollHeartbeat } from "@/utils";
+import { getAccount, pollHeartbeat, TransactionManager } from "@/utils";
 import { Bind } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
-import { getDefaultStoreConfig, IConfig, logger, Network, Store, ContractAddr, TelegramNotif } from "@strkfarm/sdk";
+import { getDefaultStoreConfig, IConfig, logger, Network, Store, ContractAddr, TelegramNotif, EkuboCLVaultStrategies, Global, PricerRedis, FatalError, EkuboCLVault, IStrategyMetadata, EkuboPoolKey, CLVaultStrategySettings, EkuboBounds, SwapInfo, Web3Number } from "@strkfarm/sdk";
 import { Account, Contract, uint256 } from "starknet";
-
-interface PoolKey {
-  token0: string,
-  token1: string,
-  fee: string,
-  tick_spacing: string,
-  extension: string
-}
+const schedule = require('node-schedule');
 
 export interface ContractInfo {
   address: string,
   name: string,
   priceSpread: number,
-  poolKey?: PoolKey,
+  poolKey?: EkuboPoolKey,
   truePrice: () => Promise<number>
 }
 
 export class CLVault {
   readonly config: IConfig;
-  readonly contractsInfo: ContractInfo[] = [{
-    address: ContractAddr.from('0x1f083b98674bc21effee29ef443a00c7b9a500fd92cf30341a3da12c73f2324').address,
-    name: 'Ekubo xSTRK/STRK',
-    priceSpread: 0.02,
-    truePrice: this.xSTRKTruePrice.bind(this)
-  }];
+  readonly contractsInfo = EkuboCLVaultStrategies;
   
-  readonly account: Account;
-  readonly contracts: Contract[] = [];
+  readonly ekuboCLModules: EkuboCLVault[] = [];
+  readonly transactionManager: TransactionManager;
   readonly telegramNotif: TelegramNotif;
+
   ekuboPositionsContract: Contract;
   xSTRKContract: Contract;
   private initialised = false;
 
-  constructor(config: IConfig) {
+  constructor(config: IConfig, txManager: TransactionManager) {
     this.config = config;
 
-    // configure the account for asset management
-    const defaultStoreConfig = getDefaultStoreConfig(<Network>process.env.NETWOR);
-    defaultStoreConfig.PASSWORD = process.env.ACCOUNT_SECURE_PASSWORD;
-    defaultStoreConfig.ACCOUNTS_FILE_NAME = 'accounts-risk.json'
-    const store = new Store(this.config, defaultStoreConfig);
-    
-    if (!process.env.ACCOUNT_NAME) {
-        throw new Error('ACCOUNT_NAME not set');
-    }
-    this.account = <any>store.getAccount(process.env.ACCOUNT_NAME);
+    this.transactionManager = txManager;
     this.telegramNotif = new TelegramNotif(process.env.TG_TOKEN, false);
     this.init();
   }
 
   async init() {
+    this.telegramNotif.sendMessage(`Starting Ekubo CL manager`);
+    
+    const tokens = await Global.getTokens();
+    const pricer = new PricerRedis(this.config, tokens);
+    if (!process.env.REDIS_URL) {
+      throw new FatalError('REDIS_URL not set');
+    }
+    await pricer.initRedis(process.env.REDIS_URL);
+    
     for (let i=0; i<this.contractsInfo.length; i++) {
-      let contractInfo = this.contractsInfo[i];
-      const cls = await this.config.provider.getClassAt(contractInfo.address);
-      const contract = new Contract(cls.abi, contractInfo.address, this.config.provider);
-      this.contracts.push(contract);
-      const result: any = await contract.call('get_settings', []);
-      this.contractsInfo[i].poolKey = {
-        token0: result.pool_key.token0.toString(),
-        token1: result.pool_key.token1.toString(),
-        fee: result.pool_key.fee.toString(),
-        tick_spacing: result.pool_key.tick_spacing.toString(),
-        extension: result.pool_key.extension.toString()
-      };
+      const c = this.contractsInfo[i];
+      const cls = new EkuboCLVault(this.config, pricer, c);
+      this.ekuboCLModules.push(cls);
     }
     logger.log('CLVault initialised');
 
@@ -82,6 +62,10 @@ export class CLVault {
     this.xSTRKContract = new Contract(clsXSTRK.abi, xSTRK, this.config.provider);
     logger.log('xSTRK Contract initialised');
 
+    this.handleFees();
+    const handleFeeJob = schedule.scheduleJob('42 12 * * *', () => {
+      this.handleFees();
+    });
     this.initialised = true;
   }
 
@@ -105,52 +89,54 @@ export class CLVault {
 
     for (let i=0; i<this.contractsInfo.length; i++) {
       try {
-        const contractInfo = this.contractsInfo[i];
-        const bounds = await this.getBounds(i);
-        const currentPrice = await this.getCurrentPrice(contractInfo.poolKey);
-        const poolFee = this.getPoolFeeNumber(contractInfo.poolKey);
-        const truePrice = await contractInfo.truePrice();
-        this.telegramNotif.sendMessage(`[${contractInfo.name}] Bounds: ${bounds.lower} - ${bounds.upper}, Current Price: ${currentPrice.price}, tick: ${currentPrice.tick}, Pool Fee: ${poolFee}`);
-        this.telegramNotif.sendMessage(`[${contractInfo.name}] True Price: ${truePrice}, tick: ${this.priceToTick(truePrice, true, Number(contractInfo.poolKey.tick_spacing)).mag}`);
+        const module = this.ekuboCLModules[i];
+        const bounds = await module.getCurrentBounds();
+        const poolKey = await module.getPoolKey();
+        const currentPrice = await module.getCurrentPrice();
+        const poolFee = this.getPoolFeeNumber(poolKey);
+        const truePrice = await module.truePrice();
+        this.telegramNotif.sendMessage(`[${module.metadata.name}] Bounds: ${bounds.lowerTick} - ${bounds.upperTick}, Current Price: ${currentPrice.price}, tick: ${currentPrice.tick}, Pool Fee: ${poolFee}`);
+        this.telegramNotif.sendMessage(`[${module.metadata.name}] True Price: ${truePrice}, tick: ${EkuboCLVault.priceToTick(truePrice, true, Number(poolKey.tick_spacing)).mag}`);
 
         // create a record
         await prisma.cl_vault_record.create({
           data: {
-            contract_address: contractInfo.address,
-            is_below_range: currentPrice.tick < bounds.lower,
-            is_above_range: currentPrice.tick > bounds.upper,
+            contract_address: module.address.address,
+            is_below_range: currentPrice.tick < bounds.lowerTick,
+            is_above_range: currentPrice.tick > bounds.upperTick,
             timestamp: Math.round(new Date().getTime() / 1000),
             block_number: (await this.config.provider.getBlockLatestAccepted()).block_number
           }
         });
 
         // just extra notifs in the initial phase
-        if (currentPrice.tick < bounds.lower) {
-          this.telegramNotif.sendMessage(`[${contractInfo.name}] Price is below lower bound`);
+        if (currentPrice.tick < bounds.lowerTick) {
+          this.telegramNotif.sendMessage(`[${module.metadata.name}] Price is below lowerTick bound`);
         }
-        if (currentPrice.tick > bounds.upper) {
-          this.telegramNotif.sendMessage(`[${contractInfo.name}] Price is above upper bound`);
+        if (currentPrice.tick > bounds.upperTick) {
+          this.telegramNotif.sendMessage(`[${module.metadata.name}] Price is above upperTick bound`);
         }
 
-        // if price is above upper bound, do nothing, all good
-        if (currentPrice.tick >= bounds.lower && currentPrice.tick <= bounds.upper) {
-          logger.log(`[${contractInfo.name}] Price is within bounds`);
+        // if price is above upperTick bound, do nothing, all good
+        if (currentPrice.tick >= bounds.lowerTick && currentPrice.tick <= bounds.upperTick) {
+          logger.log(`[${module.metadata.name}] Price is within bounds`);
           continue;
         }
 
-        const last24HrRangeHistory = await this.summariseLast24HrRangeHistory(contractInfo);
+        const last24HrRangeHistory = await this.summariseLast24HrRangeHistory(module);
 
-        // if lower, do nothing, wait for price to go up
-        // arb engine should pick it up      if (currentPrice.tick < bounds.lower) {
-        if (currentPrice.tick < bounds.lower && last24HrRangeHistory.isAllLower) {
-          this.telegramNotif.sendMessage(`[${contractInfo.name}] Price is below lower bound and has been below lower bound for the last 24 hours`);
+        // if lowerTick, do nothing, wait for price to go up
+        // arb engine should pick it up      if (currentPrice.tick < bounds.lowerTick) {
+        if (currentPrice.tick < bounds.lowerTick && last24HrRangeHistory.isAllLower) {
+          this.telegramNotif.sendMessage(`[${module.metadata.name}] Price is below lowerTick bound and has been below lowerTick bound for the last 24 hours`);
           continue;
         }
 
         // if higher but current price below true price, may need to adjust
-        if (currentPrice.tick > bounds.upper && currentPrice.price < truePrice) {
-          this.telegramNotif.sendMessage(`[${contractInfo.name}] Price is above upper bound and has been above upper bound for the last 24 hours but current price is below true price`);
-          this.telegramNotif.sendMessage(`Need to adjust range for ${contractInfo.name}`);
+        if (currentPrice.tick > bounds.upperTick && currentPrice.price < truePrice) {
+          this.telegramNotif.sendMessage(`[${module.metadata.name}] Price is above upperTick bound and has been above upperTick bound for the last 24 hours but current price is below true price`);
+          this.telegramNotif.sendMessage(`Need to adjust range for ${module.metadata.name}`);
+          await this.rebalance(module);
           continue;
         }
       } catch (err) {
@@ -166,64 +152,17 @@ export class CLVault {
     }, 1000 * 60 * 55); // every 55 minutes
   }
 
-  async getBounds(contractIndex: number) {
-    const contract = this.contracts[contractIndex];
-    const result: any = await contract.call('get_position_key', []);
-    return {
-      lower: Number(result.bounds.lower.mag) * (result.bounds.lower.sign.toString() == "false" ? 1 : -1),
-      upper: Number(result.bounds.upper.mag) * (result.bounds.upper.sign.toString() == "false" ? 1 : -1)
-    }
-  }
-
-  async getCurrentPrice(poolKey: PoolKey) {
-    const priceInfo: any = await this.ekuboPositionsContract.call('get_pool_price', [
-      poolKey
-    ])
-    const sqrtRatio = this.div2Power128(BigInt(priceInfo.sqrt_ratio.toString()));
-    const price = sqrtRatio * sqrtRatio;
-    const tick = this.priceToTick(price, true, Number(poolKey.tick_spacing));
-    return {
-      price,
-      tick: tick.mag * (tick.sign == 0 ? 1 : -1)
-    }
-  }
-
   /**
    * @description Get the pool fee number
    * @param poolKey 
    * @returns number
    */
-  getPoolFeeNumber(poolKey: PoolKey) {
-    return this.div2Power128(BigInt(poolKey.fee));
+  getPoolFeeNumber(poolKey: EkuboPoolKey) {
+    return EkuboCLVault.div2Power128(BigInt(poolKey.fee));
   }
 
-  /**
-   * @description Get the pool tick spacing number
-   * @param num 
-   * @returns number
-   */
-  private div2Power128(num: BigInt): number {
-    return (Number(((BigInt(num.toString()) * 1000000n) / BigInt(2 ** 128))) / 1000000)
-  }
-
-  private priceToTick(price: number, isRoundDown: boolean, tickSpacing: number) {
-    const value = isRoundDown ? Math.floor(Math.log(price) / Math.log(1.000001)) : Math.ceil(Math.log(price) / Math.log(1.000001));
-    const tick = Math.floor(value / tickSpacing) * tickSpacing;
-    if (tick < 0) {
-        return {
-            mag: -tick,
-            sign: 1
-        };
-    } else {
-        return {
-            mag: tick,
-            sign: 0
-        };
-    }
-  }
-
-  private async summariseLast24HrRangeHistory(contractInfo: ContractInfo) {
-    const contract_address = contractInfo.address;
+  private async summariseLast24HrRangeHistory(mod: EkuboCLVault) {
+    const contract_address = mod.address.address;
     const prisma = new PrismaClient();
     const now = new Date();
     const records = await prisma.cl_vault_record.findMany({
@@ -231,7 +170,7 @@ export class CLVault {
         timestamp: 'desc'
       },
       where: {
-        contract_address,
+        contract_address: contract_address.toString(),
         timestamp: {
           lte: Math.round(now.getTime() / 1000)
         }
@@ -251,7 +190,7 @@ export class CLVault {
     }
 
     if (!isTooFewRecords && isTooFewRecordsInLast24Hrs) {
-      this.telegramNotif.sendMessage(`Too few records in the last 24 hours for ${contractInfo.name}`);
+      this.telegramNotif.sendMessage(`Too few records in the last 24 hours for ${mod.metadata.name}`);
       return null;
     } else {
       // check if all records are below or above range
@@ -265,9 +204,71 @@ export class CLVault {
     }
   }
 
-  async xSTRKTruePrice() {
-    const result: any = await this.xSTRKContract.call('convert_to_assets', [uint256.bnToUint256(BigInt(10e18).toString())]);
-    const truePrice = Number(BigInt(result.toString()) * BigInt(10e9)/ BigInt(10e18)) / 10e9;
-    return truePrice;
+  async rebalance(mod: EkuboCLVault, retry = 0, factorPercent = 1) {
+    const swapInfo = await mod.getSwapInfoToHandleUnused(true);
+    logger.verbose(`Swap Info: ${JSON.stringify(swapInfo)}`);
+    const newBounds = await mod.getNewBounds();
+    return await this.rebalanceIter(mod, newBounds, swapInfo, 0, factorPercent);
+  }
+
+  async rebalanceIter(mod: EkuboCLVault, newBounds: EkuboBounds, swapInfo: SwapInfo, retry = 0, factorPercent = 1, token0Low = true) {
+    const MAX_RETRIES = 10;
+    logger.verbose(`Rebalancing CLVault ${mod.metadata.name}, retry: ${retry}, factorPercent: ${factorPercent}, token0Low: ${token0Low}`);
+    logger.verbose(`Rebalancing CLVault ${mod.metadata.name}, selling ${uint256.uint256ToBN(swapInfo.token_from_amount).toString()} ${swapInfo.token_from_address}`);
+    try {
+      const rebalanceCalls = mod.rebalanceCall(newBounds, swapInfo);
+      const acc = getAccount(this.config);
+      const gas = await acc.estimateInvokeFee(rebalanceCalls);
+      this.transactionManager.addCalls(rebalanceCalls, `CLVault ${mod.metadata.name}`);
+    } catch(err: any) {
+      if (retry < MAX_RETRIES) {
+        logger.error(`Error in rebalancing CLVault ${mod.metadata.name}, retrying...`);
+        if (err.message.includes('invalid token0 balance')) {
+          logger.verbose(`Has too much token0`);
+          let _swapInfo = swapInfo;
+          _swapInfo.token_from_amount = uint256.bnToUint256(Web3Number.fromWei(uint256.uint256ToBN(swapInfo.token_from_amount).toString(), 18).multipliedBy((100 - factorPercent)/100).toWei());
+          _swapInfo.token_to_min_amount = uint256.bnToUint256('0');
+          // await new Promise(resolve => setTimeout(resolve, 1000 * 30));
+          return await this.rebalanceIter(mod, newBounds, _swapInfo, retry + 1, token0Low ? factorPercent : factorPercent / 2, true);
+        } else if (err.message.includes('invalid token1 balance')) {
+          logger.verbose(`Has too much token1`);
+          let _swapInfo = swapInfo;
+          _swapInfo.token_from_amount = uint256.bnToUint256(Web3Number.fromWei(uint256.uint256ToBN(swapInfo.token_from_amount).toString(), 18).multipliedBy((100 + factorPercent)/100).toWei());
+          _swapInfo.token_to_min_amount = uint256.bnToUint256('0');
+          // await new Promise(resolve => setTimeout(resolve, 1000 * 30));
+          return await this.rebalanceIter(mod, newBounds, _swapInfo, retry + 1, token0Low ? factorPercent / 2 : factorPercent, false);
+        } else {
+          logger.verbose(`Some other error`);
+          logger.verbose(err);
+          // await new Promise(resolve => setTimeout(resolve, 1000 * 30));
+          return await this.rebalanceIter(mod, newBounds, swapInfo, retry + 1, factorPercent, token0Low);
+        }
+      } else {
+        logger.error(`Error in rebalancing CLVault ${mod.metadata.name}, max retries reached`);
+        this.telegramNotif.sendMessage(`Error in rebalancing CLVault ${mod.metadata.name}, max retries reached`);
+        throw err;
+      }
+    }
+  }
+
+  async handleFees() {
+    this.ekuboCLModules.forEach(async (mod) => {
+      try {
+        const tvl = await mod.getTVL();
+        const feesAccrued = await mod.getUncollectedFees();
+        this.telegramNotif.sendMessage(`CLVault: ${mod.metadata.name} - TVL: $${tvl.netUsdValue}, amt0: ${tvl.token0.amount.toString()}, amt1: ${tvl.token1.amount.toString()}, Fees accrued for ${feesAccrued.netUsdValue}`);
+        if (feesAccrued.netUsdValue < 1) {
+          logger.log(`No fees accrued for ${mod.metadata.name}`);
+          return;
+        }
+        const call = mod.handleFeesCall();
+        this.transactionManager.addCalls(call, `CLVault ${mod.metadata.name}`);
+      } catch (err) {
+        logger.error(`Error in handleFees for ${mod.metadata.name}`);
+        logger.error(err);
+        this.telegramNotif.sendMessage(`Error in handleFees for ${mod.metadata.name}`);
+        this.telegramNotif.sendMessage(`${err.message}`);
+      }
+    });
   }
 }

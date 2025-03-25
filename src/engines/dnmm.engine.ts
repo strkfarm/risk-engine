@@ -9,20 +9,21 @@ import { TransactionManager } from '@/utils';
 async function main() {
   const config = getMainnetConfig();
   const txManager = new TransactionManager(config);
+  txManager.start();
+  
+  // const dnmm = new DeltaNeutraMM(config);
+  // await dnmm.waitForInitialisation();
 
-  const dnmm = new DeltaNeutraMM(config);
-  await dnmm.waitForInitialisation();
-
-  const clVault = new CLVault(config);
+  const clVault = new CLVault(config, txManager);
   await clVault.waitForInitialisation();
 
-  const vesuRebalancer = new VesuRebalancer(config, txManager);
-  await vesuRebalancer.waitForInitialisation();
+  // const vesuRebalancer = new VesuRebalancer(config, txManager);
+  // await vesuRebalancer.waitForInitialisation();
 
   // Start monitors
-  dnmm.start();
+  // dnmm.start();
   clVault.start();
-  vesuRebalancer.start();
+  // vesuRebalancer.start();
 }
 
 if (require.main === module) {

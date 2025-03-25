@@ -340,7 +340,7 @@ export class DeltaNeutraMM {
         if (!mainTokenInfo) {
             throw new FatalError('Main token info not found');
         }
-        const colPrice = await this.pragma.getPrice(mainTokenInfo.address);
+        const colPrice = await this.pragma.getPrice(mainTokenInfo.address.address);
         const collateralUsd = collateralAmount.multipliedBy(colPrice);
         if (!collateralUsd) {
             throw new FatalError('Collateral amount not found');
@@ -359,7 +359,7 @@ export class DeltaNeutraMM {
         if(!secondaryTokenInfo) {
             throw new FatalError('Secondary token info not found');
         }
-        const borrowPrice = await this.pragma.getPrice(secondaryTokenInfo?.address || '');
+        const borrowPrice = await this.pragma.getPrice(secondaryTokenInfo?.address.address || '');
         const borrowFactor = secondaryTokenInfo?.borrowFactor;
         if (!borrowFactor) {
             throw new FatalError('Borrow factor not found');

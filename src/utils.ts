@@ -19,7 +19,7 @@ export function getAccount(config: IConfig) {
     if (!process.env.ACCOUNT_NAME) {
         throw new Error('ACCOUNT_NAME not set');
     }
-    return <Account>store.getAccount(process.env.ACCOUNT_NAME);
+    return <Account>store.getAccount(process.env.ACCOUNT_NAME, '0x3');
 }
 
 export class TransactionManager {
@@ -34,7 +34,7 @@ export class TransactionManager {
     start() {
         setInterval(() => {
             this.execute();
-        }, 30000);
+        }, 10000);
     }
 
     addCalls(calls: Call[], source: string) {
@@ -42,7 +42,7 @@ export class TransactionManager {
         this.calls = this.calls.concat(calls.map(call => ({call, source})));
     }
 
-    async execute() {
+    private async execute() {
         if (this.calls.length === 0) {
             return;
         }
