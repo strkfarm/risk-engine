@@ -50,7 +50,7 @@ export class VesuRebalancer {
 }
 
   async start(count = 0) {
-    if (count % 6 == 0) {
+    if (count % (6 * 12) == 0) {
       await this.statusMessage();
     }
 
@@ -58,19 +58,21 @@ export class VesuRebalancer {
       await this.waitForInitialisation();
       await this.checkAndRebalance();
     } catch (err) {
-      logger.error(`Error in VesuRebalancer: ${err}`);
+      logger.error(`Error in VesuRebalancer: ${err}`, err);
       this.telegramNotif.sendMessage(`Error in VesuRebalancer: ${err}`);
     }
 
     setTimeout(() => {
       this.start(count + 1)
-    }, 3600 * 1000); // 1 hour
+    }, 300 * 1000); // 1 hour
   }
 
   async checkAndRebalance() {
     const calls: Call[] = [];
     for (const vesuRebalance of this.vesuRebalanceModules) {
       const {netApy, newYield, changes, isAnyPoolOverMaxWeight} = await this.getPoolInfo(vesuRebalance);
+      logger.verbose(`${VesuRebalance.name}: ${vesuRebalance.metadata.name} => net APY: ${(netApy * 100).toFixed(4)}%`);
+      logger.verbose(`${VesuRebalance.name}: ${vesuRebalance.metadata.name} => new APY: ${(newYield * 100).toFixed(4)}%`);
       const rebalanceCondition1 = newYield - netApy > 0.01; // 1% improvement
       const rebalanceCondition2 = isAnyPoolOverMaxWeight // 
 
@@ -102,7 +104,7 @@ export class VesuRebalancer {
     logger.verbose(`${VesuRebalance.name}: ${vesuRebalance.metadata.name} => net APY: ${(netApy * 100).toFixed(4)}%`);
 
     const {changes, finalPools, isAnyPoolOverMaxWeight} = await vesuRebalance.getRebalancedPositions();
-
+    logger.verbose(`${VesuRebalance.name}: ${vesuRebalance.metadata.name} => rebalance final pools: ${JSON.stringify(finalPools)}`);
     const newYield = await vesuRebalance.netAPYGivenPools(finalPools);
     logger.verbose(`${VesuRebalance.name}: ${vesuRebalance.metadata.name} => net APY after rebalance: ${(newYield * 100).toFixed(4)}%`);
 

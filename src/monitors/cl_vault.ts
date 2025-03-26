@@ -2,7 +2,7 @@ import { pollHeartbeat } from "@/utils";
 import { Bind } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
 import { getDefaultStoreConfig, IConfig, logger, Network, Store, ContractAddr, TelegramNotif } from "@strkfarm/sdk";
-import { Account, Contract, uint256 } from "starknet";
+import { Account, Contract, RpcProvider, uint256 } from "starknet";
 
 interface PoolKey {
   token0: string,
@@ -57,7 +57,7 @@ export class CLVault {
     for (let i=0; i<this.contractsInfo.length; i++) {
       let contractInfo = this.contractsInfo[i];
       const cls = await this.config.provider.getClassAt(contractInfo.address);
-      const contract = new Contract(cls.abi, contractInfo.address, this.config.provider);
+      const contract = new Contract(cls.abi, contractInfo.address, this.config.provider as any);
       this.contracts.push(contract);
       const result: any = await contract.call('get_settings', []);
       this.contractsInfo[i].poolKey = {
@@ -73,13 +73,13 @@ export class CLVault {
     // init Ekubo Position
     const ekuboPosition = '0x02e0af29598b407c8716b17f6d2795eca1b471413fa03fb145a5e33722184067';
     const cls = await this.config.provider.getClassAt(ekuboPosition);
-    this.ekuboPositionsContract = new Contract(cls.abi, ekuboPosition, this.config.provider);
+    this.ekuboPositionsContract = new Contract(cls.abi, ekuboPosition, this.config.provider as any);
     logger.log('Ekubo Position initialised');
 
     // init xSTRK Contract
     const xSTRK = '0x028d709c875c0ceac3dce7065bec5328186dc89fe254527084d1689910954b0a';
     const clsXSTRK = await this.config.provider.getClassAt(xSTRK);
-    this.xSTRKContract = new Contract(clsXSTRK.abi, xSTRK, this.config.provider);
+    this.xSTRKContract = new Contract(clsXSTRK.abi, xSTRK, this.config.provider as any);
     logger.log('xSTRK Contract initialised');
 
     this.initialised = true;

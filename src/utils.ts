@@ -19,7 +19,7 @@ export function getAccount(config: IConfig) {
     if (!process.env.ACCOUNT_NAME) {
         throw new Error('ACCOUNT_NAME not set');
     }
-    return <Account>store.getAccount(process.env.ACCOUNT_NAME);
+    return <Account>(store.getAccount(process.env.ACCOUNT_NAME, '0x3') as any);
 }
 
 export class TransactionManager {
@@ -29,6 +29,7 @@ export class TransactionManager {
     constructor(config: IConfig) {
         this.account = getAccount(config);
         this.telegramNotif = new TelegramNotif(process.env.TG_TOKEN, false);
+        this.start();
     }
 
     start() {
