@@ -73,7 +73,7 @@ export class VesuRebalancer {
       const {netApy, newYield, changes, isAnyPoolOverMaxWeight} = await this.getPoolInfo(vesuRebalance);
       logger.verbose(`${VesuRebalance.name}: ${vesuRebalance.metadata.name} => net APY: ${(netApy * 100).toFixed(4)}%`);
       logger.verbose(`${VesuRebalance.name}: ${vesuRebalance.metadata.name} => new APY: ${(newYield * 100).toFixed(4)}%`);
-      const rebalanceCondition1 = newYield - netApy > 0.01; // 1% improvement
+      const rebalanceCondition1 = newYield - netApy > 0.003; // 0.3% improvement
       const rebalanceCondition2 = isAnyPoolOverMaxWeight // 
 
       if (rebalanceCondition1 || rebalanceCondition2) {
