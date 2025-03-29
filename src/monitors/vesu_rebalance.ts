@@ -80,9 +80,11 @@ export class VesuRebalancer {
         logger.info(`${VesuRebalance.name}: ${vesuRebalance.metadata.name} => rebalancing required`);
         this.telegramNotif.sendMessage(`${VesuRebalance.name}: ${vesuRebalance.metadata.name} => rebalancing required\nnet APY: ${(netApy * 100).toFixed(4)}% => ${(newYield * 100).toFixed(4)}%\nisAnyPoolOverMaxWeight: ${isAnyPoolOverMaxWeight}`);
         calls.push(await vesuRebalance.getRebalanceCall(changes, isAnyPoolOverMaxWeight));
+        logger.verbose(`${VesuRebalance.name}: ${vesuRebalance.metadata.name} => rebalance call: ${JSON.stringify(calls[calls.length - 1])}`);
       }
     }
 
+    logger.verbose(`VesuRebalancer: calls: ${calls.length}`);
     if (calls.length > 0) {
       this.transactionManager.addCalls(calls, 'VesuRebalancer');
     }
