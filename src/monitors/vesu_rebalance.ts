@@ -50,7 +50,7 @@ export class VesuRebalancer {
 }
 
   async start(count = 0) {
-    if (count % (6 * 12) == 0) {
+    if (count % (2 * 12) == 0) {
       await this.statusMessage();
     }
 
@@ -64,7 +64,7 @@ export class VesuRebalancer {
 
     setTimeout(() => {
       this.start(count + 1)
-    }, 300 * 1000); // 1 hour
+    }, 900 * 1000); // 1 hour
   }
 
   async checkAndRebalance() {
