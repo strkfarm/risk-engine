@@ -53,13 +53,13 @@ export class CLVault {
     // init Ekubo Position
     const ekuboPosition = '0x02e0af29598b407c8716b17f6d2795eca1b471413fa03fb145a5e33722184067';
     const cls = await this.config.provider.getClassAt(ekuboPosition);
-    this.ekuboPositionsContract = new Contract(cls.abi, ekuboPosition, this.config.provider);
+    this.ekuboPositionsContract = new Contract(cls.abi, ekuboPosition, this.config.provider as any);
     logger.log('Ekubo Position initialised');
 
     // init xSTRK Contract
     const xSTRK = '0x028d709c875c0ceac3dce7065bec5328186dc89fe254527084d1689910954b0a';
     const clsXSTRK = await this.config.provider.getClassAt(xSTRK);
-    this.xSTRKContract = new Contract(clsXSTRK.abi, xSTRK, this.config.provider);
+    this.xSTRKContract = new Contract(clsXSTRK.abi, xSTRK, this.config.provider as any);
     logger.log('xSTRK Contract initialised');
 
     this.handleFees();
@@ -207,47 +207,15 @@ export class CLVault {
   async rebalance(mod: EkuboCLVault, retry = 0, factorPercent = 1) {
     const swapInfo = await mod.getSwapInfoToHandleUnused(true);
     logger.verbose(`Swap Info: ${JSON.stringify(swapInfo)}`);
+    const acc = getAccount(this.config);
     const newBounds = await mod.getNewBounds();
-    return await this.rebalanceIter(mod, newBounds, swapInfo, 0, factorPercent);
-  }
-
-  async rebalanceIter(mod: EkuboCLVault, newBounds: EkuboBounds, swapInfo: SwapInfo, retry = 0, factorPercent = 1, token0Low = true) {
-    const MAX_RETRIES = 10;
-    logger.verbose(`Rebalancing CLVault ${mod.metadata.name}, retry: ${retry}, factorPercent: ${factorPercent}, token0Low: ${token0Low}`);
-    logger.verbose(`Rebalancing CLVault ${mod.metadata.name}, selling ${uint256.uint256ToBN(swapInfo.token_from_amount).toString()} ${swapInfo.token_from_address}`);
-    try {
-      const rebalanceCalls = mod.rebalanceCall(newBounds, swapInfo);
-      const acc = getAccount(this.config);
-      const gas = await acc.estimateInvokeFee(rebalanceCalls);
-      this.transactionManager.addCalls(rebalanceCalls, `CLVault ${mod.metadata.name}`);
-    } catch(err: any) {
-      if (retry < MAX_RETRIES) {
-        logger.error(`Error in rebalancing CLVault ${mod.metadata.name}, retrying...`);
-        if (err.message.includes('invalid token0 balance')) {
-          logger.verbose(`Has too much token0`);
-          let _swapInfo = swapInfo;
-          _swapInfo.token_from_amount = uint256.bnToUint256(Web3Number.fromWei(uint256.uint256ToBN(swapInfo.token_from_amount).toString(), 18).multipliedBy((100 - factorPercent)/100).toWei());
-          _swapInfo.token_to_min_amount = uint256.bnToUint256('0');
-          // await new Promise(resolve => setTimeout(resolve, 1000 * 30));
-          return await this.rebalanceIter(mod, newBounds, _swapInfo, retry + 1, token0Low ? factorPercent : factorPercent / 2, true);
-        } else if (err.message.includes('invalid token1 balance')) {
-          logger.verbose(`Has too much token1`);
-          let _swapInfo = swapInfo;
-          _swapInfo.token_from_amount = uint256.bnToUint256(Web3Number.fromWei(uint256.uint256ToBN(swapInfo.token_from_amount).toString(), 18).multipliedBy((100 + factorPercent)/100).toWei());
-          _swapInfo.token_to_min_amount = uint256.bnToUint256('0');
-          // await new Promise(resolve => setTimeout(resolve, 1000 * 30));
-          return await this.rebalanceIter(mod, newBounds, _swapInfo, retry + 1, token0Low ? factorPercent / 2 : factorPercent, false);
-        } else {
-          logger.verbose(`Some other error`);
-          logger.verbose(err);
-          // await new Promise(resolve => setTimeout(resolve, 1000 * 30));
-          return await this.rebalanceIter(mod, newBounds, swapInfo, retry + 1, factorPercent, token0Low);
-        }
-      } else {
-        logger.error(`Error in rebalancing CLVault ${mod.metadata.name}, max retries reached`);
-        this.telegramNotif.sendMessage(`Error in rebalancing CLVault ${mod.metadata.name}, max retries reached`);
-        throw err;
-      }
+    const calls = await mod.rebalanceIter(swapInfo, acc, async (_swapInfo) => {
+      return await mod.rebalanceCall(newBounds, _swapInfo);
+    }, 0, factorPercent);
+    logger.verbose(`Rebalance calls: ${JSON.stringify(calls)}`);
+    if (calls.length > 0) {
+      this.transactionManager.addCalls(calls, `CLVault ${mod.metadata.name}`);
+      return;
     }
   }
 
@@ -256,8 +224,8 @@ export class CLVault {
       try {
         const tvl = await mod.getTVL();
         const feesAccrued = await mod.getUncollectedFees();
-        this.telegramNotif.sendMessage(`CLVault: ${mod.metadata.name} - TVL: $${tvl.netUsdValue}, amt0: ${tvl.token0.amount.toString()}, amt1: ${tvl.token1.amount.toString()}, Fees accrued for ${feesAccrued.netUsdValue}`);
-        if (feesAccrued.netUsdValue < 1) {
+        this.telegramNotif.sendMessage(`CLVault: ${mod.metadata.name} - TVL: $${tvl.usdValue}, amt0: ${tvl.token0.amount.toString()}, amt1: ${tvl.token1.amount.toString()}, Fees accrued for ${feesAccrued.usdValue}`);
+        if (feesAccrued.usdValue < 1) {
           logger.log(`No fees accrued for ${mod.metadata.name}`);
           return;
         }
