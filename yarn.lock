@@ -1174,10 +1174,10 @@
   dependencies:
     "@sinonjs/commons" "^3.0.0"
 
-"@strkfarm/sdk@^1.0.30":
-  version "1.0.30"
-  resolved "https://registry.yarnpkg.com/@strkfarm/sdk/-/sdk-1.0.30.tgz#f6e965dc9f213dbc266519cf39e8359f703d5616"
-  integrity sha512-GbRLe9m0R5E7Ulmj/L5Gscd9yEldLm0UFHMuQGYokRh/gAP3gNea9Gja5vYE8HwzMX5ns1/2jLcUnOYp51zWKQ==
+"@strkfarm/sdk@^1.0.31":
+  version "1.0.31"
+  resolved "https://registry.yarnpkg.com/@strkfarm/sdk/-/sdk-1.0.31.tgz#e9a42f7e5747f438273a5e7859ded9a4872e8ec7"
+  integrity sha512-/RE85z/G48jNr0fYXAVnyKzPNM56bFJklgidX11DdsKa88MgrfXpyIKawoyQN6qbXLd5AbrNiNtm56SdC0tjKQ==
   dependencies:
     "@avnu/avnu-sdk" "^3.0.2"
     axios "^1.7.2"
