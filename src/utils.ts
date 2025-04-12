@@ -90,6 +90,5 @@ export class TransactionManager {
         // tx not succeeded
         logger.error(`Error in TransactionManager`, _err);
         this.telegramNotif.sendMessage(`RiskManager: Error in TransactionManager: ${_err}, source: ${sourceSuccessStr}`);
-        this.calls = callsInfo.concat(this.calls); // to add new calls added in this time
     }
 }
