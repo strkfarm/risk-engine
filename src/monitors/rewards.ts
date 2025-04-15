@@ -50,9 +50,10 @@ export class RewardsModule {
       let retry = 0;
       while (retry < 3) {
         try {
+          const time = Math.floor(Date.now() / 1000);
           const rewardDoc = await prisma.rewards.createMany({
             data: rewardsInfo.rewards.map((reward: any) => ({
-              timestamp: Math.floor(Date.now() / 1000),
+              timestamp: time,
               strategy_id: reward.id,
               reward_amount: reward.reward,
               reward_token: reward.rewardToken,
@@ -73,7 +74,8 @@ export class RewardsModule {
             where: {
               strategy_id: {
                 in: rewardsInfo.rewards.map((reward: any) => reward.id)
-              }
+              },
+              timestamp: time
             },
             data: {
               tx_hash: tx.transaction_hash
