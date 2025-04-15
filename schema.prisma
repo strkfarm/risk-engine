@@ -17,3 +17,13 @@ model cl_vault_record {
 
   @@unique([contract_address, timestamp], name: "id")
 }
+
+model rewards {
+  id Int @id @default(autoincrement())
+  timestamp    Int
+
+  strategy_id String
+  reward_amount Int // raw
+  reward_token String
+  tx_hash String
+}

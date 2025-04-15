@@ -5,6 +5,8 @@ import { DeltaNeutraMM } from "@/monitors/delta_neutral_mm";
 import { CLVault } from '@/monitors/cl_vault';
 import { VesuRebalancer } from '@/monitors/vesu_rebalance';
 import { TransactionManager } from '@/utils';
+import { RewardsModule } from '@/monitors/rewards';
+const schedule = require('node-schedule');
 
 async function main() {
   const config = getMainnetConfig(process.env.RPC_URL!);
@@ -19,6 +21,13 @@ async function main() {
 
   const vesuRebalancer = new VesuRebalancer(config, txManager);
   await vesuRebalancer.waitForInitialisation();
+
+  // auto starts
+  const rewardsMod = new RewardsModule(config, txManager);
+  schedule.scheduleJob('13 * * * *', () => {
+    console.log('Sending rewards');
+    rewardsMod.sendRewards();
+  });
 
   // Start monitors
   dnmm.start();
