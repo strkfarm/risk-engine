@@ -204,14 +204,14 @@ export class CLVault {
     }
   }
 
-  async rebalance(mod: EkuboCLVault, retry = 0, factorPercent = 1) {
+  async rebalance(mod: EkuboCLVault, retry = 0) {
     const swapInfo = await mod.getSwapInfoToHandleUnused(true);
     logger.verbose(`Swap Info: ${JSON.stringify(swapInfo)}`);
     const acc = getAccount(this.config);
     const newBounds = await mod.getNewBounds();
     const calls = await mod.rebalanceIter(swapInfo, acc, async (_swapInfo) => {
       return await mod.rebalanceCall(newBounds, _swapInfo);
-    }, 0, factorPercent);
+    }, false, 0);
     logger.verbose(`Rebalance calls: ${JSON.stringify(calls)}`);
     if (calls.length > 0) {
       this.transactionManager.addCalls(calls, `CLVault ${mod.metadata.name}`);
