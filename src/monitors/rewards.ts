@@ -17,10 +17,34 @@ export class RewardsModule {
     this.telegramNotif = new TelegramNotif(process.env.TG_TOKEN, false);
   }
 
+  async validateGrowth() {
+    const user = '0x0055741fd3ec832F7b9500E24A885B8729F213357BE4A8E209c4bCa1F3b909Ae';
+    const contract = '0x05eaf5ee75231cecf79921ff8ded4b5ffe96be718bcb3daf206690ad1a9ad0ca'
+    const cls = await this.config.provider.getClassAt(contract);
+    const contractInstance = new Contract(cls.abi, contract, this.config.provider as any);
+
+    const block = 1319532
+    const bal = await contractInstance.call('balanceOf', [user], {
+      blockIdentifier: block
+    });
+    const converted = await contractInstance.call('convert_to_assets', [uint256.bnToUint256(bal.toString())], {
+      blockIdentifier: block
+    });
+    console.log(`Balance: ${bal}, converted: ${converted}`);
+  }
+
   async sendRewards() {
     const res = await axios.get('http://beta.strkfarm.com/api/rewards');
     const rewardsInfo = res.data;
     const calls: Call[] = [];
+
+    const lastUpdated = new Date(rewardsInfo.lastUpdated);
+    const now = new Date();
+    if (now.getTime() - lastUpdated.getTime() > 60 * 60 * 1000) { // 1 hour
+      logger.log(`Last updated was more than 1 hour ago, skipping rewards`);
+      this.telegramNotif.sendMessage(`Last updated was more than 1 hour ago, skipping rewards`);
+      return;
+    }
 
     for (let reward of rewardsInfo.rewards) {
       logger.log(`Reward: ${JSON.stringify(reward)}`);
