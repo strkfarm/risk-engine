@@ -107,7 +107,7 @@ export class VesuRebalancer {
   private async getPoolInfo(vesuRebalance: VesuRebalance) {
     const currentPoolsInfo = await vesuRebalance.getPools();
     const netApy = await vesuRebalance.netAPYGivenPools(currentPoolsInfo.data);
-    logger.verbose(`${VesuRebalance.name}: ${vesuRebalance.metadata.name} => net APY: ${(netApy * 100).toFixed(4)}%`);
+    logger.verbose(`getPoolInfo::${VesuRebalance.name}: ${vesuRebalance.metadata.name} => net APY: ${(netApy * 100).toFixed(4)}%`);
 
     try {
       const {changes, finalPools, isAnyPoolOverMaxWeight} = await vesuRebalance.getRebalancedPositions();
