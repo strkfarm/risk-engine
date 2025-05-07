@@ -127,17 +127,21 @@ export class CLVault {
 
         // if lowerTick, do nothing, wait for price to go up
         // arb engine should pick it up      if (currentPrice.tick < bounds.lowerTick) {
-        if (currentPrice.tick < bounds.lowerTick && last24HrRangeHistory.isAllLower) {
+        if (currentPrice.tick < bounds.lowerTick && last24HrRangeHistory?.isAllLower) {
           this.telegramNotif.sendMessage(`[${module.metadata.name}] Price is below lowerTick bound and has been below lowerTick bound for the last 24 hours`);
           continue;
         }
+        
+        if (last24HrRangeHistory?.isAllHigher) {
+          this.telegramNotif.sendMessage(`[${module.metadata.name}] Price is above upperTick bound and has been above upperTick bound for the last 24 hours`);
 
-        // if higher but current price below true price, may need to adjust
-        if (currentPrice.tick > bounds.upperTick && currentPrice.price < truePrice) {
-          this.telegramNotif.sendMessage(`[${module.metadata.name}] Price is above upperTick bound and has been above upperTick bound for the last 24 hours but current price is below true price`);
-          this.telegramNotif.sendMessage(`Need to adjust range for ${module.metadata.name}`);
-          await this.rebalance(module);
-          continue;
+          // if higher but current price below true price, may beed to adjust
+          if (currentPrice.tick > bounds.upperTick && currentPrice.price < truePrice) {
+            this.telegramNotif.sendMessage(`[${module.metadata.name}] Price is above upperTick bound and has been above upperTick bound for the last 24 hours but current price is below true price`);
+            this.telegramNotif.sendMessage(`Need to adjust range for ${module.metadata.name}`);
+            await this.rebalance(module);
+            continue;
+          }
         }
       } catch (err) {
         logger.error(err);
