@@ -6,6 +6,7 @@ import { CLVault } from '@/monitors/cl_vault';
 import { VesuRebalancer } from '@/monitors/vesu_rebalance';
 import { TransactionManager } from '@/utils';
 import { RewardsModule } from '@/monitors/rewards';
+import { EndurArbitrage } from '@/monitors/endur_arbitrage';
 const schedule = require('node-schedule');
 
 async function main() {
@@ -22,17 +23,21 @@ async function main() {
   const vesuRebalancer = new VesuRebalancer(config, txManager);
   await vesuRebalancer.waitForInitialisation();
 
-  // auto starts
-  const rewardsMod = new RewardsModule(config, txManager);
-  schedule.scheduleJob('13 * * * *', () => {
-    console.log('Sending rewards');
-    rewardsMod.sendRewards();
-  });
+  const endurArb = new EndurArbitrage(config, txManager);
+  await endurArb.init();
+
+  // @no longer used
+  // const rewardsMod = new RewardsModule(config, txManager);
+  // schedule.scheduleJob('13 * * * *', () => {
+  //   console.log('Sending rewards');
+  //   rewardsMod.sendRewards();
+  // });
 
   // Start monitors
   dnmm.start();
   clVault.start();
   vesuRebalancer.start();
+  endurArb.start();
 }
 
 if (require.main === module) {

@@ -1,0 +1,189 @@
+[
+  {
+    "type": "impl",
+    "name": "ArbWithHodlImpl",
+    "interface_name": "xstrkarb::arb_with_hodl::IArbWithHodl"
+  },
+  {
+    "type": "struct",
+    "name": "core::integer::u256",
+    "members": [
+      {
+        "name": "low",
+        "type": "core::integer::u128"
+      },
+      {
+        "name": "high",
+        "type": "core::integer::u128"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "strkfarm_contracts::components::swap::Route",
+    "members": [
+      {
+        "name": "token_from",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "token_to",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "exchange_address",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "percent",
+        "type": "core::integer::u128"
+      },
+      {
+        "name": "additional_swap_params",
+        "type": "core::array::Array::<core::felt252>"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "strkfarm_contracts::components::swap::AvnuMultiRouteSwap",
+    "members": [
+      {
+        "name": "token_from_address",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "token_from_amount",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "token_to_address",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "token_to_amount",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "token_to_min_amount",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "beneficiary",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "integrator_fee_amount_bps",
+        "type": "core::integer::u128"
+      },
+      {
+        "name": "integrator_fee_recipient",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "routes",
+        "type": "core::array::Array::<strkfarm_contracts::components::swap::Route>"
+      }
+    ]
+  },
+  {
+    "type": "interface",
+    "name": "xstrkarb::arb_with_hodl::IArbWithHodl",
+    "items": [
+      {
+        "type": "function",
+        "name": "perform_arb",
+        "inputs": [
+          {
+            "name": "beneficiary",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "amount",
+            "type": "core::integer::u128"
+          },
+          {
+            "name": "swap_path",
+            "type": "strkfarm_contracts::components::swap::AvnuMultiRouteSwap"
+          },
+          {
+            "name": "min_percent_bps",
+            "type": "core::integer::u128"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      }
+    ]
+  },
+  {
+    "type": "constructor",
+    "name": "constructor",
+    "inputs": [
+      {
+        "name": "from_token",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "to_token",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "oracle_addr",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "wq_addr",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "owner",
+        "type": "core::starknet::contract_address::ContractAddress"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "xstrkarb::arb_with_hodl::ArbWithHodl::ArbWithHodl",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "beneficiary",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "output_amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "expected_gain",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "wq_nft_id",
+        "type": "core::integer::u256",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "xstrkarb::arb_with_hodl::ArbWithHodl::Event",
+    "kind": "enum",
+    "variants": [
+      {
+        "name": "ArbWithHodl",
+        "type": "xstrkarb::arb_with_hodl::ArbWithHodl::ArbWithHodl",
+        "kind": "nested"
+      }
+    ]
+  }
+]

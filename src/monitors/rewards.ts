@@ -1,8 +1,8 @@
-import { Call, Contract, uint256, TransactionExecutionStatus } from "starknet";;
-import axios from "axios";
-import { getAccount, TransactionManager } from "@/utils";
-import { IConfig, logger, TelegramNotif, Web3Number } from "@strkfarm/sdk";
-import { PrismaClient } from "@prisma/client";
+import { Call, Contract, uint256, TransactionExecutionStatus } from 'starknet';
+import axios from 'axios';
+import { getAccount, TransactionManager } from '@/utils';
+import { IConfig, logger, TelegramNotif, Web3Number } from '@strkfarm/sdk';
+import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 export class RewardsModule {
@@ -18,18 +18,28 @@ export class RewardsModule {
   }
 
   async validateGrowth() {
-    const user = '0x0055741fd3ec832F7b9500E24A885B8729F213357BE4A8E209c4bCa1F3b909Ae';
-    const contract = '0x05eaf5ee75231cecf79921ff8ded4b5ffe96be718bcb3daf206690ad1a9ad0ca'
+    const user =
+      '0x0055741fd3ec832F7b9500E24A885B8729F213357BE4A8E209c4bCa1F3b909Ae';
+    const contract =
+      '0x05eaf5ee75231cecf79921ff8ded4b5ffe96be718bcb3daf206690ad1a9ad0ca';
     const cls = await this.config.provider.getClassAt(contract);
-    const contractInstance = new Contract(cls.abi, contract, this.config.provider as any);
+    const contractInstance = new Contract(
+      cls.abi,
+      contract,
+      this.config.provider as any,
+    );
 
-    const block = 1319532
+    const block = 1319532;
     const bal = await contractInstance.call('balanceOf', [user], {
-      blockIdentifier: block
+      blockIdentifier: block,
     });
-    const converted = await contractInstance.call('convert_to_assets', [uint256.bnToUint256(bal.toString())], {
-      blockIdentifier: block
-    });
+    const converted = await contractInstance.call(
+      'convert_to_assets',
+      [uint256.bnToUint256(bal.toString())],
+      {
+        blockIdentifier: block,
+      },
+    );
     console.log(`Balance: ${bal}, converted: ${converted}`);
   }
 
@@ -40,14 +50,17 @@ export class RewardsModule {
 
     const lastUpdated = new Date(rewardsInfo.lastUpdated);
     const now = new Date();
-    if (now.getTime() - lastUpdated.getTime() > 60 * 60 * 1000) { // 1 hour
-      logger.log(`Last updated was more than 1 hour ago, skipping rewards`);
-      this.telegramNotif.sendMessage(`Last updated was more than 1 hour ago, skipping rewards`);
+    if (now.getTime() - lastUpdated.getTime() > 60 * 60 * 1000) {
+      // 1 hour
+      logger.info(`Last updated was more than 1 hour ago, skipping rewards`);
+      this.telegramNotif.sendMessage(
+        `Last updated was more than 1 hour ago, skipping rewards`,
+      );
       return;
     }
 
     for (let reward of rewardsInfo.rewards) {
-      logger.log(`Reward: ${JSON.stringify(reward)}`);
+      logger.info(`Reward: ${JSON.stringify(reward)}`);
       if (reward.reward == 0) continue;
 
       // last reward
@@ -57,17 +70,37 @@ export class RewardsModule {
         },
         where: {
           strategy_id: reward.id,
-        }
-      })
-      if (lastReward && (new Date().getTime() - (lastReward.timestamp) * 1000) < 50 * 60 * 1000) { // 50 minutes
-        logger.log(`Last reward for ${reward.id} was less than 50 minutes ago`);
+        },
+      });
+      if (
+        lastReward &&
+        new Date().getTime() - lastReward.timestamp * 1000 < 50 * 60 * 1000
+      ) {
+        // 50 minutes
+        logger.info(
+          `Last reward for ${reward.id} was less than 50 minutes ago`,
+        );
         continue;
       }
       const cls = await this.config.provider.getClassAt(reward.rewardToken);
-      const rewardTokenContract = new Contract(cls.abi, reward.rewardToken, this.config.provider as any);
-      const call = rewardTokenContract.populate('transfer', [reward.receiver, uint256.bnToUint256(new Web3Number(reward.reward.toFixed(13), reward.rewardDecimals).toWei())])
+      const rewardTokenContract = new Contract(
+        cls.abi,
+        reward.rewardToken,
+        this.config.provider as any,
+      );
+      const call = rewardTokenContract.populate('transfer', [
+        reward.receiver,
+        uint256.bnToUint256(
+          new Web3Number(
+            reward.reward.toFixed(13),
+            reward.rewardDecimals,
+          ).toWei(),
+        ),
+      ]);
       calls.push(call);
-      this.telegramNotif.sendMessage(`Sending rewards to ${reward.id} of ${reward.reward}`);
+      this.telegramNotif.sendMessage(
+        `Sending rewards to ${reward.id} of ${reward.reward}`,
+      );
     }
     if (calls.length) {
       const acc = getAccount(this.config);
@@ -81,45 +114,49 @@ export class RewardsModule {
               strategy_id: reward.id,
               reward_amount: reward.reward,
               reward_token: reward.rewardToken,
-              tx_hash: ""
-            }))
+              tx_hash: '',
+            })),
           });
-          logger.log(`Rewards saved to DB`);
+          logger.info(`Rewards saved to DB`);
           this.telegramNotif.sendMessage(`Rewards saved to DB`);
-          
+
           const tx = await acc.execute(calls);
-          logger.log(`Rewards Transaction sent: ${tx.transaction_hash}`);
+          logger.info(`Rewards Transaction sent: ${tx.transaction_hash}`);
           await this.config.provider.waitForTransaction(tx.transaction_hash, {
-            successStates: [TransactionExecutionStatus.SUCCEEDED]
+            successStates: [TransactionExecutionStatus.SUCCEEDED as any],
           });
-          logger.log(`Rewards Transaction succeeded: ${tx.transaction_hash}`);
-          this.telegramNotif.sendMessage(`Rewards Transaction succeeded: ${tx.transaction_hash}`);
+          logger.info(`Rewards Transaction succeeded: ${tx.transaction_hash}`);
+          this.telegramNotif.sendMessage(
+            `Rewards Transaction succeeded: ${tx.transaction_hash}`,
+          );
           await prisma.rewards.updateMany({
             where: {
               strategy_id: {
-                in: rewardsInfo.rewards.map((reward: any) => reward.id)
+                in: rewardsInfo.rewards.map((reward: any) => reward.id),
               },
-              timestamp: time
+              timestamp: time,
             },
             data: {
-              tx_hash: tx.transaction_hash
-            }
+              tx_hash: tx.transaction_hash,
+            },
           });
-          logger.log(`Rewards Transaction hash saved to DB`);
+          logger.info(`Rewards Transaction hash saved to DB`);
           break;
         } catch (err) {
           console.error(`Rewards Transaction failed: retry: ${retry}`, err);
           if (retry >= 10) {
             logger.error(`Rewards Transaction failed: ${err}`);
-            this.telegramNotif.sendMessage(`Rewards Transaction failed: ${err}`);
+            this.telegramNotif.sendMessage(
+              `Rewards Transaction failed: ${err}`,
+            );
             throw err;
           }
           retry += 1;
-          await new Promise(resolve => setTimeout(resolve, 1000 * retry));
+          await new Promise((resolve) => setTimeout(resolve, 1000 * retry));
         }
       }
     } else {
-      logger.log(`No rewards to send`);
+      logger.info(`No rewards to send`);
     }
   }
 }

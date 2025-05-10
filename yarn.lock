@@ -1044,10 +1044,10 @@
   resolved "https://registry.yarnpkg.com/@redis/bloom/-/bloom-1.2.0.tgz#d3fd6d3c0af3ef92f26767b56414a370c7b63b71"
   integrity sha512-HG2DFjYKbpNmVXsa0keLHp/3leGJz1mjh09f2RLGGLQZzSHpkmZWuwJbAvo3QcRY8p80m5+ZdXZdYOSBLlp7Cg==
 
-"@redis/client@1.6.0":
-  version "1.6.0"
-  resolved "https://registry.yarnpkg.com/@redis/client/-/client-1.6.0.tgz#dcf4ae1319763db6fdddd6de7f0af68a352c30ea"
-  integrity sha512-aR0uffYI700OEEH4gYnitAnv3vzVGXCFvYfdpu/CJKvk4pHfLPEy/JSZyrpQ+15WhXe1yJRXLtfQ84s4mEXnPg==
+"@redis/client@1.6.1":
+  version "1.6.1"
+  resolved "https://registry.yarnpkg.com/@redis/client/-/client-1.6.1.tgz#c4636b7cb34e96008a988409b7e787364ae761a2"
+  integrity sha512-/KCsg3xSlR+nCK8/8ZYSknYxvXHwubJrU82F3Lm1Fp6789VQ0/3RJKfsmRXjqfaTA++23CvC3hqmqe/2GEt6Kw==
   dependencies:
     cluster-key-slot "1.1.2"
     generic-pool "3.9.0"
@@ -1161,10 +1161,10 @@
   dependencies:
     "@sinonjs/commons" "^3.0.0"
 
-"@strkfarm/sdk@^1.0.37":
-  version "1.0.37"
-  resolved "https://registry.yarnpkg.com/@strkfarm/sdk/-/sdk-1.0.37.tgz#a42ca922eb454b6bbabb9280319867594032f177"
-  integrity sha512-c3L/lwV+BNcxldfkpXMQ7LhMfGNTL1iv4fD7t2x89W0MIB9bUeEvhYndMSTxaVGC1Lgm0vLdIWP/3BfRX74/8Q==
+"@strkfarm/sdk@^1.0.40":
+  version "1.0.40"
+  resolved "https://registry.yarnpkg.com/@strkfarm/sdk/-/sdk-1.0.40.tgz#ec59ac5bec7a3e76c15bc743e64c5bf5ab95c2d6"
+  integrity sha512-DjWRryxWeYjOTzEb3fZ7uC3T9li20Equ3wiGH8T+opsoK3Or8KSUrNNn0BdLl5jyFgbANj4DmR7h9lfhPBCpYA==
   dependencies:
     "@avnu/avnu-sdk" "^3.0.2"
     axios "^1.7.2"
@@ -1179,7 +1179,6 @@
     proxy-from-env "^1.1.0"
     redis "^4.7.0"
     stacktrace-js "^2.0.2"
-    starknet "^6.11.0"
     winston "^3.13.0"
 
 "@tsconfig/node10@^1.0.7":
@@ -1393,9 +1392,9 @@
     undici-types "~6.19.2"
 
 "@types/node@^22.5.5":
-  version "22.14.1"
-  resolved "https://registry.yarnpkg.com/@types/node/-/node-22.14.1.tgz#53b54585cec81c21eee3697521e31312d6ca1e6f"
-  integrity sha512-u0HuPQwe/dHrItgHHpmw3N2fYCR6x4ivMNbPHRkBVP4CvN+kiRrKHWk3i8tXiO/joPwXLMYvF9TTF0eqgHIuOw==
+  version "22.15.17"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-22.15.17.tgz#355ccec95f705b664e4332bb64a7f07db30b7055"
+  integrity sha512-wIX2aSZL5FE+MR0JlvF87BNVrtFWf6AE6rxSE9X7OwnVvoyCQjpzSRJ+M87se/4QCkCiebQAqrJ0y6fwIyi7nw==
   dependencies:
     undici-types "~6.21.0"
 
@@ -5559,12 +5558,12 @@ redeyed@~2.1.0:
     esprima "~4.0.0"
 
 redis@^4.7.0:
-  version "4.7.0"
-  resolved "https://registry.yarnpkg.com/redis/-/redis-4.7.0.tgz#b401787514d25dd0cfc22406d767937ba3be55d6"
-  integrity sha512-zvmkHEAdGMn+hMRXuMBtu4Vo5P6rHQjLoHftu+lBqq8ZTA3RCVC/WzD790bkKKiNFp7d5/9PcSD19fJyyRvOdQ==
+  version "4.7.1"
+  resolved "https://registry.yarnpkg.com/redis/-/redis-4.7.1.tgz#08588a30936be0e7ad9c0f3e1ac6a85ccaf73e94"
+  integrity sha512-S1bJDnqLftzHXHP8JsT5II/CtHWQrASX5K96REjWjlmWKrviSOLWmM7QnRLstAWsu1VBBV1ffV6DzCvxNP0UJQ==
   dependencies:
     "@redis/bloom" "1.2.0"
-    "@redis/client" "1.6.0"
+    "@redis/client" "1.6.1"
     "@redis/graph" "1.1.1"
     "@redis/json" "1.0.7"
     "@redis/search" "1.2.0"

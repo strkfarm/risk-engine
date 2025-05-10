@@ -17,11 +17,12 @@
     "build": "nest build"
   },
   "dependencies": {
+    "@avnu/avnu-sdk": "^3.0.2",
     "@nestjs/common": "^10.0.0",
     "@nestjs/core": "^10.0.0",
     "@nestjs/platform-express": "^10.0.0",
     "@prisma/client": "5.16.1",
-    "@strkfarm/sdk": "^1.0.37",
+    "@strkfarm/sdk": "^1.0.40",
     "axios": "^1.7.2",
     "bignumber.js": "4.0.4",
     "dotenv": "^16.4.5",
