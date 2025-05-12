@@ -4,7 +4,7 @@ import { Quote } from "@avnu/avnu-sdk";
 import { TransactionManager } from '@/utils';
 import { scheduleJob } from 'node-schedule';
 import { Contract } from 'starknet';
-import EndurArbABI from '@/abis/endur-arb.abi.json';
+import * as EndurArbABI from '@/abis/endur-arb.abi.json';
 
 export interface EndurArbitrageConfig {
   ARB_CONTRACT: string;
@@ -186,8 +186,7 @@ export class EndurArbitrage {
       `${EndurArbitrage.name}: getFromTokenBalance => ${this.tokenFrom(this.module)} balance: ${output}, allowance: ${allowance}`,
     );
     
-    const allowanceAmount = Web3Number.fromWei(allowance.toString(), 18);
-    if (allowanceAmount.lte(50_000)) { // less than 50k
+    if (allowance.lte(50_000)) { // less than 50k
       // check if time with first first 5min of hr
       const now = new Date();
       const first5min = now.getMinutes() < 5;
@@ -303,7 +302,7 @@ export class EndurArbitrage {
     if (amount === 0n) {
       logger.info('No suitable amount found for arbitrage.');
       return;
-    } else if (amount < 100n * (10n ** 18n)) {
+    } else if (amount < 1n * (10n ** 18n)) {
       logger.info('Amount is too small for arbitrage.');
       return;
     }
