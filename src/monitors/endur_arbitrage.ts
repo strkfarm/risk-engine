@@ -302,7 +302,7 @@ export class EndurArbitrage {
     if (amount === 0n) {
       logger.info('No suitable amount found for arbitrage.');
       return;
-    } else if (amount < 1n * (10n ** 18n)) {
+    } else if (amount < 2n * (10n ** 18n)) {
       logger.info('Amount is too small for arbitrage.');
       return;
     }
