@@ -23,8 +23,8 @@ async function main() {
   const vesuRebalancer = new VesuRebalancer(config, txManager);
   await vesuRebalancer.waitForInitialisation();
 
-  // const endurArb = new EndurArbitrage(config, txManager);
-  // await endurArb.init();
+  const endurArb = new EndurArbitrage(config, txManager);
+  await endurArb.init();
 
   // @no longer used
   // const rewardsMod = new RewardsModule(config, txManager);
