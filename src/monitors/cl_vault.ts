@@ -91,9 +91,9 @@ export class CLVault {
     );
     logger.info('xSTRK Contract initialised');
 
-    this.handleFees();
+    this.handleUnused();
     const handleFeeJob = schedule.scheduleJob('42 12 * * *', () => {
-      this.handleFees();
+      this.handleUnused();
     });
     this.initialised = true;
   }
@@ -297,25 +297,59 @@ export class CLVault {
     }
   }
 
-  async handleFees() {
-    this.ekuboCLModules.forEach(async (mod) => {
+  handleFees(forceHandleFees = false) {
+    return new Promise<void>((resolve, reject) => {
+      this.ekuboCLModules.forEach(async (mod) => {
+        try {
+          const tvl = await mod.getTVL();
+          const feesAccrued = await mod.getUncollectedFees();
+          this.telegramNotif.sendMessage(
+            `CLVault::Fees: ${mod.metadata.name} - TVL: $${tvl.usdValue}, amt0: ${tvl.token0.amount.toString()}, amt1: ${tvl.token1.amount.toString()}, Fees accrued for ${feesAccrued.usdValue}`,
+          );
+          if (feesAccrued.usdValue < 1 && !forceHandleFees) {
+            logger.info(`No fees accrued for ${mod.metadata.name}`);
+            return;
+          }
+          const call = mod.handleFeesCall();
+
+          // resolve is called when the tx is successful
+          this.transactionManager.addCalls(call, `CLVault handle fees ${mod.metadata.name}`, resolve);
+        } catch (err) {
+          logger.error(`Error in handleFees for ${mod.metadata.name}`);
+          logger.error(err);
+          this.telegramNotif.sendMessage(
+            `Error in handleFees for ${mod.metadata.name}`,
+          );
+          this.telegramNotif.sendMessage(`${err.message}`);
+          reject(err);
+        }
+      });
+    });
+  }
+
+  async handleUnused() {      
+    await this.handleFees(true);
+    
+    [this.ekuboCLModules[0]].forEach(async (mod) => {
       try {
         const tvl = await mod.getTVL();
-        const feesAccrued = await mod.getUncollectedFees();
+        const unusedBalances = await mod.unusedBalances();
+        const totalUnused = unusedBalances.token0.usdValue + unusedBalances.token1.usdValue;
         this.telegramNotif.sendMessage(
-          `CLVault: ${mod.metadata.name} - TVL: $${tvl.usdValue}, amt0: ${tvl.token0.amount.toString()}, amt1: ${tvl.token1.amount.toString()}, Fees accrued for ${feesAccrued.usdValue}`,
+          `CLVault::Unused: ${mod.metadata.name} - TVL: $${tvl.usdValue}, amt0: ${tvl.token0.amount.toString()}, amt1: ${tvl.token1.amount.toString()}, total unused: ${totalUnused}`,
         );
-        if (feesAccrued.usdValue < 1) {
-          logger.info(`No fees accrued for ${mod.metadata.name}`);
+        if (totalUnused < 1) {
+          logger.info(`No unused balances for ${mod.metadata.name}`);
           return;
         }
-        const call = mod.handleFeesCall();
-        this.transactionManager.addCalls(call, `CLVault ${mod.metadata.name}`);
+        const swapInfo = await mod.getSwapInfoToHandleUnused(false);
+        const call = mod.handleUnusedCall(swapInfo);
+        this.transactionManager.addCalls(call, `CLVault Unused ${mod.metadata.name}`);
       } catch (err) {
-        logger.error(`Error in handleFees for ${mod.metadata.name}`);
+        logger.error(`Error in handleUnused for ${mod.metadata.name}`);
         logger.error(err);
         this.telegramNotif.sendMessage(
-          `Error in handleFees for ${mod.metadata.name}`,
+          `Error in handleUnused for ${mod.metadata.name}`,
         );
         this.telegramNotif.sendMessage(`${err.message}`);
       }

@@ -23,7 +23,7 @@ export function getAccount(config: IConfig) {
 }
 
 export class TransactionManager {
-    private calls: {call: Call, source: string}[] = [];
+    private calls: {call: Call, source: string, cb?: () => void}[] = [];
     readonly account: Account;
     readonly telegramNotif: TelegramNotif;
     constructor(config: IConfig) {
@@ -38,9 +38,9 @@ export class TransactionManager {
         }, 10000);
     }
 
-    addCalls(calls: Call[], source: string) {
+    addCalls(calls: Call[], source: string, cb?: () => void) {
         logger.info(`Adding call from ${source}`);
-        this.calls = this.calls.concat(calls.map(call => ({call, source})));
+        this.calls = this.calls.concat(calls.map(call => ({call, source, cb})));
     }
 
     private async execute() {
@@ -75,6 +75,13 @@ export class TransactionManager {
                 logger.info(`Transaction succeeded: ${tx.transaction_hash}`);
                 
                 this.telegramNotif.sendMessage(`RiskManager: Transaction succeeded\n${sourceSuccessStr}`);
+                // Call the callback if it exists
+                callsInfo.map(c => {
+                    if (c.cb) {
+                        c.cb();
+                    }
+                });
+
                 return;
             } catch (err) {
                 _err = err;
