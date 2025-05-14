@@ -142,18 +142,19 @@ export class CLVault {
           },
         });
         
-        const last24HrRangeHistory =
-        await this.summariseLast24HrRangeHistory(module);
+        const minHours = module.metadata.additionalInfo.rebalanceConditions.minWaitHours;
+        const lastNHrRangeHistory =
+        await this.summariseLastNHrRangeHistory(module, minHours);
 
         // just extra notifs in the initial phase
         if (currentPrice.tick < bounds.lowerTick) {
           this.telegramNotif.sendMessage(
-            `[${module.metadata.name}] Price is below lowerTick bound`,
+            `[${module.metadata.name}] Price is below lowerTick bound, below count: ${lastNHrRangeHistory?.isBelowFactor.toFixed(4)}`,
           );
         }
         if (currentPrice.tick > bounds.upperTick) {
           this.telegramNotif.sendMessage(
-            `[${module.metadata.name}] Price is above upperTick bound, above count: ${last24HrRangeHistory?.isAboveFactor.toFixed(4)}`,
+            `[${module.metadata.name}] Price is above upperTick bound, above count: ${lastNHrRangeHistory?.isAboveFactor.toFixed(4)}`,
           );
         }
 
@@ -165,37 +166,49 @@ export class CLVault {
           continue;
         }
 
-        // if lowerTick, do nothing, wait for price to go up
-        // arb engine should pick it up      if (currentPrice.tick < bounds.lowerTick) {
-        if (
-          currentPrice.tick < bounds.lowerTick &&
-          last24HrRangeHistory?.isAllLower
-        ) {
-          this.telegramNotif.sendMessage(
-            `[${module.metadata.name}] Price is below lowerTick bound and has been below lowerTick bound for the last 24 hours`,
-          );
+        let customShouldRebalance = await module.metadata.additionalInfo.rebalanceConditions.customShouldRebalance(currentPrice.price);
+        logger.info(`[${module.metadata.name}]: custom should rebalance? ${customShouldRebalance}`)
+
+        if (!customShouldRebalance) {
           continue;
         }
 
-        if (last24HrRangeHistory?.isAllHigher) {
+        let shouldRebalanceStandard = false;
+        let rebelanceDirection = module.metadata.additionalInfo.rebalanceConditions.direction;
+
+        if (
+          lastNHrRangeHistory?.isAllLower
+        ) {
           this.telegramNotif.sendMessage(
-            `[${module.metadata.name}] Price is above upperTick bound and has been above upperTick bound for the last 24 hours`,
+            `[${module.metadata.name}] Price is below lowerTick bound and has been below lowerTick bound for the last ${minHours} hours`,
+          );
+          
+          if (
+            currentPrice.tick < bounds.lowerTick &&
+            rebelanceDirection == 'any'
+          ) {
+            shouldRebalanceStandard = true;
+          }
+        } else if (lastNHrRangeHistory?.isAllHigher) {
+          this.telegramNotif.sendMessage(
+            `[${module.metadata.name}] Price is above upperTick bound and has been above upperTick bound for the last ${minHours} hours`,
           );
 
           // if higher but current price below true price, may beed to adjust
           if (
             currentPrice.tick > bounds.upperTick &&
-            currentPrice.price < truePrice
+            rebelanceDirection == 'any' || rebelanceDirection == 'uponly'
           ) {
-            this.telegramNotif.sendMessage(
-              `[${module.metadata.name}] Price is above upperTick bound and has been above upperTick bound for the last 24 hours but current price is below true price`,
-            );
-            this.telegramNotif.sendMessage(
-              `Need to adjust range for ${module.metadata.name}`,
-            );
-            await this.rebalance(module);
-            continue;
+            shouldRebalanceStandard = true;
           }
+        }
+
+        if (shouldRebalanceStandard) {
+          this.telegramNotif.sendMessage(
+            `Need to adjust range for ${module.metadata.name}`,
+          );
+          await this.rebalance(module, poolKey);
+          continue;
         }
       } catch (err) {
         logger.error(err);
@@ -222,7 +235,7 @@ export class CLVault {
     return EkuboCLVault.div2Power128(BigInt(poolKey.fee));
   }
 
-  private async summariseLast24HrRangeHistory(mod: EkuboCLVault) {
+  private async summariseLastNHrRangeHistory(mod: EkuboCLVault, minHours: number) {
     const contract_address = mod.address.address;
     const prisma = new PrismaClient();
     const now = new Date();
@@ -236,26 +249,26 @@ export class CLVault {
           lte: Math.round(now.getTime() / 1000),
         },
       },
-      take: 24,
+      take: minHours,
     });
 
     let isTooFewRecords = false;
-    if (records.length < 20) {
+    if (records.length < minHours * 0.9) { // atleast 90% of required data must exist
       isTooFewRecords = true;
     }
 
     const filteredRecords = records.filter(
       (record, index) =>
-        record.timestamp > Math.round(now.getTime() / 1000) - 3600 * 24,
+        record.timestamp > Math.round(now.getTime() / 1000) - 3600 * minHours,
     );
-    let isTooFewRecordsInLast24Hrs = false;
-    if (filteredRecords.length < 20) {
-      isTooFewRecordsInLast24Hrs = true;
+    let isTooFewRecordsInLastNHrs = false;
+    if (filteredRecords.length < minHours * 0.9) {
+      isTooFewRecordsInLastNHrs = true;
     }
 
-    if (!isTooFewRecords && isTooFewRecordsInLast24Hrs) {
+    if (!isTooFewRecords && isTooFewRecordsInLastNHrs) {
       this.telegramNotif.sendMessage(
-        `Too few records in the last 24 hours for ${mod.metadata.name}`,
+        `Too few records in the last ${minHours} hours for ${mod.metadata.name}`,
       );
       return null;
     } else {
@@ -270,28 +283,36 @@ export class CLVault {
 
       // count how many higher
       const isAboveLen = filteredRecords.filter((f) => f.is_above_range).length;
+      const isBelowLen = filteredRecords.filter((f) => f.is_below_range).length;
       
       return {
         isAllLower,
         isAllHigher,
-        isAboveFactor: isAboveLen / filteredRecords.length
+        isAboveFactor: isAboveLen / filteredRecords.length,
+        isBelowFactor: isBelowLen / filteredRecords.length,
       };
     }
   }
 
-  async rebalance(mod: EkuboCLVault, retry = 0) {
+  async rebalance(mod: EkuboCLVault, poolInfo: EkuboPoolKey, retry = 0) {
+    const tvlInfo = await mod.getTVL();
     const swapInfo = await mod.getSwapInfoToHandleUnused(true);
-    logger.verbose(`Swap Info: ${JSON.stringify(swapInfo)}`);
     const acc = getAccount(this.config);
     const newBounds = await mod.getNewBounds();
+    const isSellTokenToken0 = poolInfo.token0.eqString(swapInfo.token_from_address);
     const calls = await mod.rebalanceIter(
       swapInfo,
       acc as any,
       async (_swapInfo) => {
+        logger.verbose(`Swap Info: ${JSON.stringify(_swapInfo)}`);
         return await mod.rebalanceCall(newBounds, _swapInfo);
       },
-      false,
+      isSellTokenToken0,
       0,
+      // lower limit
+      0n,
+      // upper limit
+      isSellTokenToken0 ? BigInt(tvlInfo.token0.amount.toWei()) : BigInt(tvlInfo.token1.amount.toWei())
     );
     logger.verbose(`Rebalance calls: ${JSON.stringify(calls)}`);
     if (calls.length > 0) {
