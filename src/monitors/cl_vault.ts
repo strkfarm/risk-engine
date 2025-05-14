@@ -91,7 +91,6 @@ export class CLVault {
     );
     logger.info('xSTRK Contract initialised');
 
-    this.handleUnused();
     const handleFeeJob = schedule.scheduleJob('42 12 * * *', () => {
       this.handleUnused();
     });
@@ -142,6 +141,9 @@ export class CLVault {
               .block_number,
           },
         });
+        
+        const last24HrRangeHistory =
+        await this.summariseLast24HrRangeHistory(module);
 
         // just extra notifs in the initial phase
         if (currentPrice.tick < bounds.lowerTick) {
@@ -151,11 +153,10 @@ export class CLVault {
         }
         if (currentPrice.tick > bounds.upperTick) {
           this.telegramNotif.sendMessage(
-            `[${module.metadata.name}] Price is above upperTick bound`,
+            `[${module.metadata.name}] Price is above upperTick bound, above count: ${last24HrRangeHistory?.isAboveFactor.toFixed(4)}`,
           );
         }
 
-        // if price is above upperTick bound, do nothing, all good
         if (
           currentPrice.tick >= bounds.lowerTick &&
           currentPrice.tick <= bounds.upperTick
@@ -163,9 +164,6 @@ export class CLVault {
           logger.info(`[${module.metadata.name}] Price is within bounds`);
           continue;
         }
-
-        const last24HrRangeHistory =
-          await this.summariseLast24HrRangeHistory(module);
 
         // if lowerTick, do nothing, wait for price to go up
         // arb engine should pick it up      if (currentPrice.tick < bounds.lowerTick) {
@@ -265,13 +263,18 @@ export class CLVault {
       const isAllLower = filteredRecords.every(
         (record) => record.is_below_range,
       );
+      
       const isAllHigher = filteredRecords.every(
         (record) => record.is_above_range,
       );
 
+      // count how many higher
+      const isAboveLen = filteredRecords.filter((f) => f.is_above_range).length;
+      
       return {
         isAllLower,
         isAllHigher,
+        isAboveFactor: isAboveLen / filteredRecords.length
       };
     }
   }
@@ -329,7 +332,7 @@ export class CLVault {
 
   async handleUnused() {      
     await this.handleFees(true);
-    
+
     [this.ekuboCLModules[0]].forEach(async (mod) => {
       try {
         const tvl = await mod.getTVL();
